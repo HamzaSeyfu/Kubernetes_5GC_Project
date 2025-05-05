@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upf
+  namespace: 5gc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: upf
+  template:
+    metadata:
+      labels:
+        app: upf
+    spec:
+      containers:
+        - name: upf
+          image: free5gc/upf:latest
+          ports:
+            - containerPort: 2152
+          volumeMounts:
+            - name: upf-config
+              mountPath: /free5gc/config
+      volumes:
+        - name: upf-config
+          configMap:
+            name: upf-config
