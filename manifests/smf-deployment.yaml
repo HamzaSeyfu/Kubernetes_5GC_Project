@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smf
+  namespace: 5gc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smf
+  template:
+    metadata:
+      labels:
+        app: smf
+    spec:
+      containers:
+        - name: smf
+          image: free5gc/smf:latest
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: smf-config
+              mountPath: /free5gc/config
+      volumes:
+        - name: smf-config
+          configMap:
+            name: smf-config
