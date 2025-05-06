@@ -15,6 +15,6 @@ spec:
     spec:
       containers:
       - name: amf
-        image: free5gc/amf:v1.0.0
+        image: free5gc/amf:v3.2.1
         ports:
         - containerPort: 38412
