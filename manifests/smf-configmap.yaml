@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smf-config
+  namespace: 5gc
+data:
+  smfcfg.yaml: |
+    info:
+      version: 1.0.0
+      description: SMF configuration
+
+    configuration:
+      smfName: SMF
+      pfcp:
+        addr: 127.0.0.2
+      sbi:
+        scheme: http
+        registerIPv4: 127.0.0.2
+        port: 8000
+      nrfUri: http://127.0.0.10:8000
+      userplane_information:
+        up_nodes:
+          gNB1:
+            type: AN
+            an_ip: 10.200.200.1
+          UPF1:
+            type: UPF
+            node_id: 127.0.0.8
+            sNssai_upf_infos:
+              - sNssai:
+                  sst: 1
+                  sd: 010203
+                dnn_upf_info_list:
+                  - dnn: internet
+        links:
+          - A: gNB1
+            B: UPF1
