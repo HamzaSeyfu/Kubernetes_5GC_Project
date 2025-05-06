@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: smf
-          image: free5gc/smf:latest
+          image: free5gc/smf:v3.2.1
           ports:
             - containerPort: 8000
           volumeMounts:
