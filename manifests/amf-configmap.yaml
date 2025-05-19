@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amf-config
+  namespace: 5gc
+data:
+  amfcfg.yaml: |
+    info:
+      version: 1.0.0
+      description: AMF configuration
+    configuration:
+      amfName: AMF
+      sbi:
+        scheme: http
+        registerIPv4: 127.0.0.1
+        port: 8000
+      nrfUri: http://127.0.0.10:8000
