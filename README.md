@@ -223,5 +223,100 @@ kubectl apply -f ./
 
 ---
 
-Souhaites-tu que je t’aide à créer un script `deploy.sh` qui applique tout proprement dans l’ordre ?
+Parfait. Voici **tout ce qu’il te faut pour obtenir la capture n°1** du rapport : **les logs montrant un échange PFCP (Packet Forwarding Control Protocol) entre le SMF et le UPF**.
+
+---
+
+## 🎯 Objectif
+
+Capturer un log significatif depuis le pod `smf`, montrant un échange `PFCP Session Establishment Request` et `Response` avec le `UPF`.
+
+---
+
+## ⚙️ Pré-requis
+
+* Ton cluster Kubernetes (KIND) est démarré et fonctionnel.
+* Les pods `smf` et `upf` tournent dans le namespace `5gc`.
+* La configMap `smfcfg.yaml` est bien définie avec une section `pfcp.addr` pointant vers le `UPF` (`127.0.0.8` ou équivalent).
+* L'image Docker du SMF est bien celle de `towards5gs/free5gc-smf:v3.2.1` ou une version équivalente incluant les logs.
+
+---
+
+## ✅ Étapes complètes
+
+### 1. 🎯 Identifier le nom du pod SMF
+
+```bash
+kubectl get pods -n 5gc
+```
+
+Tu obtiendras un nom de type :
+`smf-6c6d8d6b77-wmxr9`
+
+---
+
+### 2. 🔍 Lire les logs du pod SMF
+
+```bash
+kubectl logs smf-6c6d8d6b77-wmxr9 -n 5gc
+```
+
+Tu peux rediriger les logs dans un fichier temporaire pour faciliter la recherche :
+
+```bash
+kubectl logs smf-6c6d8d6b77-wmxr9 -n 5gc > smf-log.txt
+```
+
+---
+
+### 3. 🔎 Rechercher une trace PFCP dans les logs
+
+Tu peux utiliser `grep` pour filtrer ce genre de lignes (si présentes dans le binaire) :
+
+```bash
+grep PFCP smf-log.txt
+```
+
+Sinon, fais une recherche manuelle sur des blocs comme :
+
+```
+[SMF][PFCP][INFO] Sending PFCP Session Establishment Request to Node ID: 127.0.0.8
+[SMF][PFCP][INFO] Received PFCP Session Establishment Response with Cause: Request accepted
+```
+
+---
+
+### 4. 📸 Capturer une portion propre
+
+Lorsque tu identifies le bloc contenant ces deux lignes (Request + Response), isole-les avec quelques lignes avant/après. Exemple :
+
+```
+[SMF][INFO] New UE session initiated for IMSI-208930000000003
+[SMF][PFCP][INFO] Sending PFCP Session Establishment Request to Node ID: 127.0.0.8
+[SMF][PFCP][DEBUG] Request includes F-SEID, PDRs, and FARs
+[SMF][PFCP][INFO] Received PFCP Session Establishment Response with Cause: Request accepted
+[SMF][INFO] Session created successfully
+```
+
+Prends une **capture d’écran de ce bloc dans ton terminal**, avec un peu de contexte autour (nom du pod, timestamp si visible).
+
+---
+
+## 🧠 Astuces
+
+* Si tu n’as **aucune ligne PFCP**, c’est souvent dû à :
+
+  * un `upfcfg.yaml` mal configuré (adresse non routable depuis le SMF),
+  * un `smfcfg.yaml` dont la ligne `pfcp.addr` ne pointe pas vers le bon `Node ID`,
+  * ou un `nrfUri` qui bloque le bon enregistrement en amont (donc le SMF ne tente pas de dialoguer avec le UPF).
+* Pour forcer un nouveau log, redéploie simplement le pod `smf` :
+
+  ```bash
+  kubectl delete pod smf-6c6d8d6b77-wmxr9 -n 5gc
+  ```
+
+---
+
+Souhaites-tu qu’on attaque maintenant la **capture n°2 : tcpdump des paquets GTP-U dans le UPF** ?
+
 
