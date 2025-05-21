@@ -432,4 +432,168 @@ Et à l’intérieur, tu pourras ping un autre pod.
 
 ---
 
-Souhaites-tu que je t’aide à rédiger un **script de test automatisé** pour tout valider en un clic ?
+Parfait. Voici une **liste étendue et structurée** de tests que tu peux réaliser pour valider un déploiement 5GC avec Helm dans Kubernetes, **sans UE réel**. On couvre ici plusieurs niveaux : **disponibilité, logs, communication inter-pod, services exposés, ressources réseau, et intégrité des fichiers YAML**.
+
+---
+
+## 🧪 A. TESTS DE VÉRIFICATION DE BASE (cluster et pods)
+
+### 1. Vérifie que tous les pods sont bien `Running`
+
+```bash
+kubectl get pods -n free5gc -o wide
+```
+
+### 2. Vérifie les ressources utilisées
+
+```bash
+kubectl top pod -n free5gc
+```
+
+(tu dois avoir `metrics-server` installé)
+
+### 3. Vérifie le nombre de redémarrages suspects
+
+```bash
+kubectl get pods -n free5gc --sort-by=.status.containerStatuses[0].restartCount
+```
+
+---
+
+## 📂 B. TESTS SUR LES LOGS
+
+### 4. Regarder les logs d’un pod spécifique
+
+```bash
+kubectl logs -n free5gc <nom_du_pod>
+```
+
+### 5. Logs continus pour détecter les erreurs au boot
+
+```bash
+kubectl logs -f -n free5gc <pod_amf>
+```
+
+### 6. Rechercher des erreurs dans les logs
+
+```bash
+kubectl logs -n free5gc <pod> | grep -i error
+```
+
+---
+
+## 🌐 C. TESTS DE CONNECTIVITÉ ENTRE FONCTIONS
+
+### 7. Accéder à un pod pour tester la résolution DNS + ping
+
+```bash
+kubectl exec -it -n free5gc <pod_amf> -- /bin/bash
+ping <service_smf>
+```
+
+### 8. Vérifier la résolution DNS par CoreDNS
+
+```bash
+nslookup smf.free5gc.svc.cluster.local
+```
+
+---
+
+## 🧰 D. TESTS DES SERVICES EXPOSÉS
+
+### 9. Vérifie la liste des services exposés
+
+```bash
+kubectl get svc -n free5gc
+```
+
+### 10. Accède aux endpoints SBI d’un service depuis un pod
+
+```bash
+curl http://smf:8000
+curl http://nrf:8000
+```
+
+---
+
+## 🔁 E. TESTS DE LIAISONS INTER-FONCTIONS (API SBI)
+
+### 11. Test d'enregistrement AMF -> NRF (dans les logs AMF)
+
+Vérifie que tu retrouves ce genre de lignes dans les logs :
+
+```
+[INFO][AMF][SBI] Registered to NRF successfully
+```
+
+### 12. Vérifie que tous les services se sont enregistrés dans la base de données du NRF :
+
+```bash
+kubectl exec -it -n free5gc <pod_nrf> -- curl http://127.0.0.1:8000/nnrf-nfm/v1/nf-instances
+```
+
+---
+
+## 🔍 F. VALIDATION DE L’INTÉGRITÉ DES CONFIGMAPS ET VOLUMES
+
+### 13. Vérifie les fichiers montés :
+
+```bash
+kubectl exec -it -n free5gc <pod_smf> -- cat /free5gc/config/smfcfg.yaml
+```
+
+### 14. Vérifie que la configuration YAML du pod correspond bien à ce que tu veux
+
+```bash
+kubectl describe configmap smf-config -n free5gc
+```
+
+---
+
+## 🧪 G. TESTS STRUCTURELS DE MANIFESTES
+
+### 15. Tester la validité des fichiers YAML localement (sans déployer)
+
+```bash
+kubectl apply --dry-run=client -f amf-deployment.yaml
+```
+
+### 16. Lint des Helm charts (si tu les modifies)
+
+```bash
+helm lint ./chart/
+```
+
+---
+
+## 💻 H. TESTS D’INTERFACES RÉSEAU ET MULTUS (si installé)
+
+### 17. Vérifie la présence de définitions Multus (NetworkAttachmentDefinition)
+
+```bash
+kubectl get net-attach-def -A
+```
+
+---
+
+## 🔐 I. TESTS TLS ET SBI
+
+### 18. Liste les certificats présents dans les conteneurs (si tu as configuré TLS)
+
+```bash
+kubectl exec -it -n free5gc <pod> -- ls /etc/free5gc/tls
+```
+
+---
+
+## 🛠️ J. SIMULATION (si tu ajoutes les simulateurs plus tard)
+
+* Si tu déploies `UERANSIM` ou `gNBsim`, tu pourras :
+
+  * Lancer une session UE → SMF
+  * Capturer le GTP-U via `tcpdump`
+  * Tester la QoS avec `iperf3`
+
+---
+
+Souhaites-tu que je te génère un **script Bash** avec tous ces tests chaînés automatiquement dans l’ordre ?
