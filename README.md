@@ -317,11 +317,6 @@ Prends une **capture d’écran de ce bloc dans ton terminal**, avec un peu de c
 
 ---
 
-Souhaites-tu qu’on attaque maintenant la **capture n°2 : tcpdump des paquets GTP-U dans le UPF** ?
-
-https://github.com/Orange-OpenSource/towards5gs-helm
-
-
-helm repo add towards5gs 'https://raw.githubusercontent.com/Orange-OpenSource/towards5gs-helm/main/repo/'
+helm repo add towards5gs https://raw.githubusercontent.com/Orange-OpenSource/towards5gs-helm/main/repo/
 helm repo update
 helm install free5gc-core towards5gs/free5gc -n free5gc --create-namespace
