@@ -354,3 +354,82 @@ Free5GC (et d’autres composants 5G CNFs) utilisent plusieurs interfaces résea
 
 Souhaite-tu que je t’aide à valider le bon fonctionnement de Multus après installation, ou à prévisualiser les CRDs avec `kubectl get crds` ?
 
+Parfait, ton **chart Helm** `free5gc-core` a bien été installé dans le namespace `free5gc`. Maintenant tu peux tester ton déploiement étape par étape. Voici **la liste complète des commandes utiles** pour valider le fonctionnement et observer l'état du lab :
+
+---
+
+### 🔍 1. Vérifier les pods déployés
+
+```bash
+kubectl get pods -n free5gc
+```
+
+Cela affichera tous les composants (AMF, SMF, UPF, NRF, etc.).
+
+---
+
+### 🧠 2. Identifier les services exposés
+
+```bash
+kubectl get svc -n free5gc
+```
+
+Pour voir les IPs et ports d’accès aux fonctions via SBI ou GTP.
+
+---
+
+### 📦 3. Inspecter un pod (ex : AMF)
+
+```bash
+kubectl describe pod <nom_du_pod> -n free5gc
+```
+
+Ou logs :
+
+```bash
+kubectl logs <nom_du_pod> -n free5gc
+```
+
+---
+
+### 💡 4. Voir tous les CRDs déployés
+
+```bash
+kubectl get crds | grep 5gc
+```
+
+---
+
+### 📶 5. Afficher les interfaces réseau créées (multus)
+
+Si multus est bien utilisé :
+
+```bash
+kubectl get net-attach-def -n free5gc
+```
+
+---
+
+### 🔁 6. Relancer un pod
+
+Exemple : redémarrer l'UPF
+
+```bash
+kubectl delete pod <nom_du_pod_upf> -n free5gc
+```
+
+---
+
+### 🧪 7. Faire un test de connectivité (si tu as un `UE`/`gNB` simulé plus tard)
+
+Tu pourras utiliser `iperf`, `ping` ou Wireshark dans le futur. Pour l’instant :
+
+```bash
+kubectl exec -it <pod_name> -n free5gc -- /bin/bash
+```
+
+Et à l’intérieur, tu pourras ping un autre pod.
+
+---
+
+Souhaites-tu que je t’aide à rédiger un **script de test automatisé** pour tout valider en un clic ?
