@@ -298,25 +298,22 @@ Lorsque tu identifies le bloc contenant ces deux lignes (Request + Response), is
 [SMF][INFO] Session created successfully
 ```
 
-Prends une **capture d’écran de ce bloc dans ton terminal**, avec un peu de contexte autour (nom du pod, timestamp si visible).
+L’erreur affichée est tout à fait normale et liée au confinement de sécurité propre au système Snap. Pour installer Helm correctement via Snap, tu dois simplement ajouter l’option `--classic` comme indiqué dans le message.
 
----
+Voici la commande corrigée :
 
-## 🧠 Astuces
+```bash
+sudo snap install helm --classic
+```
 
-* Si tu n’as **aucune ligne PFCP**, c’est souvent dû à :
+Une fois Helm installé, tu pourras reprendre normalement l’installation du projet avec les commandes suivantes :
 
-  * un `upfcfg.yaml` mal configuré (adresse non routable depuis le SMF),
-  * un `smfcfg.yaml` dont la ligne `pfcp.addr` ne pointe pas vers le bon `Node ID`,
-  * ou un `nrfUri` qui bloque le bon enregistrement en amont (donc le SMF ne tente pas de dialoguer avec le UPF).
-* Pour forcer un nouveau log, redéploie simplement le pod `smf` :
-
-  ```bash
-  kubectl delete pod smf-6c6d8d6b77-wmxr9 -n 5gc
-  ```
-
----
-
+```bash
 helm repo add towards5gs https://raw.githubusercontent.com/Orange-OpenSource/towards5gs-helm/main/repo/
 helm repo update
 helm install free5gc-core towards5gs/free5gc -n free5gc --create-namespace
+```
+
+💡 Astuce : n'oublie pas de vérifier que Docker fonctionne bien (`sudo systemctl status docker`) et que ton cluster Kubernetes (par exemple KIND) est bien actif (`kubectl get nodes`).
+
+Souhaite-tu aussi une commande pour vérifier que l'installation Helm de Free5GC s’est bien passée ensuite ?
