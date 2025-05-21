@@ -316,4 +316,41 @@ helm install free5gc-core towards5gs/free5gc -n free5gc --create-namespace
 
 💡 Astuce : n'oublie pas de vérifier que Docker fonctionne bien (`sudo systemctl status docker`) et que ton cluster Kubernetes (par exemple KIND) est bien actif (`kubectl get nodes`).
 
-Souhaite-tu aussi une commande pour vérifier que l'installation Helm de Free5GC s’est bien passée ensuite ?
+L’erreur affichée est claire : **les Custom Resource Definitions (CRDs) `NetworkAttachmentDefinition` ne sont pas encore installées dans ton cluster**. Ces CRDs sont nécessaires pour les plugins réseau multus (CNI), utilisés dans le déploiement de Free5GC via Helm.
+
+---
+
+### ✅ Solution : Installer les CRDs de Multus
+
+Tu dois d'abord installer **Multus CNI** (le plugin réseau secondaire), qui gère les définitions `NetworkAttachmentDefinition`.
+
+#### Étapes à suivre :
+
+1. **Télécharge et applique la configuration Multus officielle** :
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset.yml
+```
+
+2. **Vérifie que les pods Multus sont bien déployés** :
+
+```bash
+kubectl get pods -n kube-system | grep multus
+```
+
+Tu devrais voir un ou plusieurs pods nommés `kube-multus-ds-*` en `Running`.
+
+3. **Réessaie l’installation du chart Helm** :
+
+```bash
+helm install free5gc-core towards5gs/free5gc -n free5gc --create-namespace
+```
+
+---
+
+### 🔎 Pourquoi c’est important ?
+
+Free5GC (et d’autres composants 5G CNFs) utilisent plusieurs interfaces réseau, ce qui n’est pas géré nativement par Kubernetes. C’est pourquoi **Multus** et les **NetworkAttachmentDefinitions** sont requis.
+
+Souhaite-tu que je t’aide à valider le bon fonctionnement de Multus après installation, ou à prévisualiser les CRDs avec `kubectl get crds` ?
+
