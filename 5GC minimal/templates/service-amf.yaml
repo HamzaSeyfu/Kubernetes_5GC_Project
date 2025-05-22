@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-amf
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.amf.port }}
+      targetPort: {{ .Values.amf.port }}
+      name: http
+  selector:
+    app: {{ include "minimal5gc.fullname" . }}-amf

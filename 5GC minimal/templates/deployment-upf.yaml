@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-upf
+spec:
+  replicas: {{ .Values.upf.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "minimal5gc.fullname" . }}-upf
+  template:
+    metadata:
+      labels:
+        app: {{ include "minimal5gc.fullname" . }}-upf
+    spec:
+      containers:
+        - name: upf
+          image: "{{ .Values.images.upf.repository }}:{{ .Values.images.upf.tag }}"
+          ports:
+            - containerPort: {{ .Values.upf.port }}
+          volumeMounts:
+            - name: upf-config
+              mountPath: /free5gc/config
+      volumes:
+        - name: upf-config
+          configMap:
+            name: {{ include "minimal5gc.fullname" . }}-upf-config

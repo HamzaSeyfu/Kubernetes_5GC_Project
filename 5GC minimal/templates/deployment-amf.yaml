@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-amf
+spec:
+  replicas: {{ .Values.amf.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "minimal5gc.fullname" . }}-amf
+  template:
+    metadata:
+      labels:
+        app: {{ include "minimal5gc.fullname" . }}-amf
+    spec:
+      containers:
+        - name: amf
+          image: "{{ .Values.images.amf.repository }}:{{ .Values.images.amf.tag }}"
+          ports:
+            - containerPort: {{ .Values.amf.port }}
+          volumeMounts:
+            - name: amf-config
+              mountPath: /free5gc/config
+      volumes:
+        - name: amf-config
+          configMap:
+            name: {{ include "minimal5gc.fullname" . }}-amf-config

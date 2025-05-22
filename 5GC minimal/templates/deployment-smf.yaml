@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-smf
+spec:
+  replicas: {{ .Values.smf.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "minimal5gc.fullname" . }}-smf
+  template:
+    metadata:
+      labels:
+        app: {{ include "minimal5gc.fullname" . }}-smf
+    spec:
+      containers:
+        - name: smf
+          image: "{{ .Values.images.smf.repository }}:{{ .Values.images.smf.tag }}"
+          ports:
+            - containerPort: {{ .Values.smf.port }}
+          volumeMounts:
+            - name: smf-config
+              mountPath: /free5gc/config
+      volumes:
+        - name: smf-config
+          configMap:
+            name: {{ include "minimal5gc.fullname" . }}-smf-config
