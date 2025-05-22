@@ -596,4 +596,357 @@ kubectl exec -it -n free5gc <pod> -- ls /etc/free5gc/tls
 
 ---
 
-Souhaites-tu que je te génère un **script Bash** avec tous ces tests chaînés automatiquement dans l’ordre ?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Chart Structure: minimal5gc
+
+```bash
+minimal5gc/
+├── Chart.yaml
+├── values.yaml
+└── templates/
+    ├── deployment-amf.yaml
+    ├── service-amf.yaml
+    ├── configmap-amf.yaml
+    ├── deployment-smf.yaml
+    ├── service-smf.yaml
+    ├── configmap-smf.yaml
+    ├── deployment-upf.yaml
+    ├── service-upf.yaml
+    └── configmap-upf.yaml
+```
+
+---
+
+### Chart.yaml
+
+```yaml
+apiVersion: v2
+name: minimal5gc
+description: "Helm chart minimal pour un cœur 5G minimal (AMF, SMF, UPF)"
+version: 0.1.0
+appVersion: "v1.0.0"
+```
+
+---
+
+### values.yaml
+
+```yaml
+# images
+images:
+  amf:
+    repository: free5gc/amf
+    tag: v3.0.11
+  smf:
+    repository: free5gc/smf
+    tag: v3.0.11
+  upf:
+    repository: free5gc/upf
+    tag: v3.0.11
+
+# AMF configuration
+amf:
+  replicaCount: 1
+  port: 7777
+  config: |
+    {
+      "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 7777 },
+      "smf": { "address": "{{ include \"minimal5gc.fullname\" . }}-smf", "port": 7778 }
+    }
+
+# SMF configuration
+smf:
+  replicaCount: 1
+  port: 7778
+  config: |
+    {
+      "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 7778 },
+      "amf": { "address": "{{ include \"minimal5gc.fullname\" . }}-amf", "port": 7777 },
+      "upf": { "address": "{{ include \"minimal5gc.fullname\" . }}-upf", "port": 8805 }
+    }
+
+# UPF configuration
+upf:
+  replicaCount: 1
+  port: 8805
+  config: |
+    {
+      "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 8805 }
+      # add PFCP, GTP configurations as needed
+    }
+```
+
+---
+
+### templates/deployment-amf.yaml
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-amf
+spec:
+  replicas: {{ .Values.amf.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "minimal5gc.fullname" . }}-amf
+  template:
+    metadata:
+      labels:
+        app: {{ include "minimal5gc.fullname" . }}-amf
+    spec:
+      containers:
+        - name: amf
+          image: "{{ .Values.images.amf.repository }}:{{ .Values.images.amf.tag }}"
+          ports:
+            - containerPort: {{ .Values.amf.port }}
+          volumeMounts:
+            - name: amf-config
+              mountPath: /free5gc/config
+      volumes:
+        - name: amf-config
+          configMap:
+            name: {{ include "minimal5gc.fullname" . }}-amf-config
+```
+
+---
+
+### templates/service-amf.yaml
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-amf
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.amf.port }}
+      targetPort: {{ .Values.amf.port }}
+      name: http
+  selector:
+    app: {{ include "minimal5gc.fullname" . }}-amf
+```
+
+---
+
+### templates/configmap-amf.yaml
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-amf-config
+data:
+  amf.json: |-
+{{ .Values.amf.config | indent 4 }}
+```
+
+---
+
+### templates/deployment-smf.yaml
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-smf
+spec:
+  replicas: {{ .Values.smf.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "minimal5gc.fullname" . }}-smf
+  template:
+    metadata:
+      labels:
+        app: {{ include "minimal5gc.fullname" . }}-smf
+    spec:
+      containers:
+        - name: smf
+          image: "{{ .Values.images.smf.repository }}:{{ .Values.images.smf.tag }}"
+          ports:
+            - containerPort: {{ .Values.smf.port }}
+          volumeMounts:
+            - name: smf-config
+              mountPath: /free5gc/config
+      volumes:
+        - name: smf-config
+          configMap:
+            name: {{ include "minimal5gc.fullname" . }}-smf-config
+```
+
+### templates/service-smf.yaml
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-smf
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.smf.port }}
+      targetPort: {{ .Values.smf.port }}
+      name: http
+  selector:
+    app: {{ include "minimal5gc.fullname" . }}-smf
+```
+
+### templates/configmap-smf.yaml
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-smf-config
+data:
+  smf.json: |-
+{{ .Values.smf.config | indent 4 }}
+```
+
+### templates/deployment-upf.yaml
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-upf
+spec:
+  replicas: {{ .Values.upf.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "minimal5gc.fullname" . }}-upf
+  template:
+    metadata:
+      labels:
+        app: {{ include "minimal5gc.fullname" . }}-upf
+    spec:
+      containers:
+        - name: upf
+          image: "{{ .Values.images.upf.repository }}:{{ .Values.images.upf.tag }}"
+          ports:
+            - containerPort: {{ .Values.upf.port }}
+          volumeMounts:
+            - name: upf-config
+              mountPath: /free5gc/config
+      volumes:
+        - name: upf-config
+          configMap:
+            name: {{ include "minimal5gc.fullname" . }}-upf-config
+```
+
+### templates/service-upf.yaml
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-upf
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.upf.port }}
+      targetPort: {{ .Values.upf.port }}
+      name: http
+  selector:
+    app: {{ include "minimal5gc.fullname" . }}-upf
+```
+
+### templates/configmap-upf.yaml
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-upf-config
+data:
+  upf.json: |-
+{{ .Values.upf.config | indent 4 }}
+```
+
+---
+
+### Commandes pour déployer et tester minimal5gc
+
+1. **Valider et installer le chart**
+
+```bash
+# Se placer à la racine du repo
+cd minimal5gc
+
+# Vérifier le chart
+helm lint .
+
+# Installer le chart (si déjà installé, utiliser --replace ou helm uninstall puis helm install)
+helm install minimal5gc .
+```
+
+2. **Vérifier les ressources Kubernetes**
+
+```bash
+# Afficher les pods (3 pods : amf, smf, upf)
+kubectl get pods
+
+# Afficher les services (3 services ClusterIP)
+kubectl get svc
+```
+
+3. **Inspecter les logs des NFs**
+
+```bash
+# AMF
+kubectl logs deploy/minimal5gc-amf
+
+# SMF
+kubectl logs deploy/minimal5gc-smf
+
+# UPF
+kubectl logs deploy/minimal5gc-upf
+```
+
+4. **Tester l’API SBI du cœur 5G**
+
+```bash
+# Lister les NF instances enregistrées (via AMF)
+AMF_IP=$(kubectl get svc minimal5gc-amf -o jsonpath='{.spec.clusterIP}')
+curl http://$AMF_IP:7777/nnrf-nfm/v1/nf-instances
+```
+
+5. **Optionnel : tester l’enregistrement SMF → UPF**
+
+```bash
+# Lister les PFCP sessions (via SMF)
+SMF_IP=$(kubectl get svc minimal5gc-smf -o jsonpath='{.spec.clusterIP}')
+curl http://$SMF_IP:7778/nnrf-nfm/v1/nf-instances
+```
+
+6. **Désinstaller**
+
+```bash
+helm uninstall minimal5gc
+```
+
