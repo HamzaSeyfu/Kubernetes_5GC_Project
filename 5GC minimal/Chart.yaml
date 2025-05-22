@@ -1,0 +1,5 @@
+apiVersion: v2
+name: minimal5gc
+description: "Helm chart minimal pour un cœur 5G minimal (AMF, SMF, UPF)"
+version: 0.1.0
+appVersion: "v1.0.0"
