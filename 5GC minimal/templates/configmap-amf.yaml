@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "minimal5gc.fullname" . }}-amf-config
+data:
+  amf.json: |-
+{{ .Values.amf.config | indent 4 }}
