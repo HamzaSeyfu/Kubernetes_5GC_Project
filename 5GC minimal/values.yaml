@@ -2,13 +2,15 @@
 images:
   amf:
     repository: free5gc/amf
-    tag: v3.0.11
+    tag: latest
   smf:
     repository: free5gc/smf
-    tag: v3.0.11
+    tag: latest
   upf:
     repository: free5gc/upf
-    tag: v3.0.11
+    tag: latest
+
+imagePullPolicy: IfNotPresent
 
 # AMF configuration
 amf:
