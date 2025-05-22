@@ -15,6 +15,7 @@ spec:
       containers:
         - name: amf
           image: "{{ .Values.images.amf.repository }}:{{ .Values.images.amf.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
           ports:
             - containerPort: {{ .Values.amf.port }}
           volumeMounts:
