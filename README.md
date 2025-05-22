@@ -950,3 +950,89 @@ curl http://$SMF_IP:7778/nnrf-nfm/v1/nf-instances
 helm uninstall minimal5gc
 ```
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Voici la marche à suivre pour **builder** vos propres images à partir des Dockerfiles du repo et les **injecter** dans votre cluster k3d (ou Minikube), afin de lever le `ErrImagePull` sans dépendre d’un registry externe :
+
+---
+
+## 1. Construire les images localement
+
+Placez-vous à la racine du repo, puis :
+
+```bash
+# AMF
+docker build -t free5gc/amf:v3.0.11 \
+  -f docker/free5gc/amf/Dockerfile \
+  docker/free5gc/amf
+
+# SMF
+docker build -t free5gc/smf:v3.0.11 \
+  -f docker/free5gc/smf/Dockerfile \
+  docker/free5gc/smf
+
+# UPF
+docker build -t free5gc/upf:v3.0.11 \
+  -f docker/free5gc/upf/Dockerfile \
+  docker/free5gc/upf
+```
+
+> Ajustez le tag (`v3.0.11`) si vous visez une autre version.
+
+---
+
+## 2. Importer les images dans k3d (si vous utilisez k3d)
+
+Supposons que votre cluster s’appelle `5gc` :
+
+```bash
+k3d image import \
+  free5gc/amf:v3.0.11 \
+  free5gc/smf:v3.0.11 \
+  free5gc/upf:v3.0.11 \
+  -c 5gc
+```
+
+> Si vous êtes sur **Minikube**, à la place faites :
+>
+> ```bash
+> minikube image load free5gc/amf:v3.0.11
+> minikube image load free5gc/smf:v3.0.11
+> minikube image load free5gc/upf:v3.0.11
+> ```
+
+---
+
+## 3. Re-déployer votre chart
+
+1. Désinstallez l’ancienne release (s’il en reste) :
+
+   ```bash
+   helm uninstall minimal5gc || true
+   ```
+2. Réinstallez :
+
+   ```bash
+   helm install minimal5gc .
+   ```
+3. Vérifiez que tout passe en **Running** :
+
+   ```bash
+   kubectl get pods
+   ```
+
+À ce stade, Kubernetes utilisera vos images locales (pas besoin de pull depuis Docker Hub) et vous ne verrez plus d’`ErrImagePull`.
