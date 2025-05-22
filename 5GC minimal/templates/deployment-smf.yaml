@@ -15,6 +15,7 @@ spec:
       containers:
         - name: smf
           image: "{{ .Values.images.smf.repository }}:{{ .Values.images.smf.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
           ports:
             - containerPort: {{ .Values.smf.port }}
           volumeMounts:
