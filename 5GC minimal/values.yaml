@@ -1,0 +1,42 @@
+# images
+images:
+  amf:
+    repository: free5gc/amf
+    tag: v3.0.11
+  smf:
+    repository: free5gc/smf
+    tag: v3.0.11
+  upf:
+    repository: free5gc/upf
+    tag: v3.0.11
+
+# AMF configuration
+amf:
+  replicaCount: 1
+  port: 7777
+  config: |
+    {
+      "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 7777 },
+      "smf": { "address": "{{ include \"minimal5gc.fullname\" . }}-smf", "port": 7778 }
+    }
+
+# SMF configuration
+smf:
+  replicaCount: 1
+  port: 7778
+  config: |
+    {
+      "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 7778 },
+      "amf": { "address": "{{ include \"minimal5gc.fullname\" . }}-amf", "port": 7777 },
+      "upf": { "address": "{{ include \"minimal5gc.fullname\" . }}-upf", "port": 8805 }
+    }
+
+# UPF configuration
+upf:
+  replicaCount: 1
+  port: 8805
+  config: |
+    {
+      "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 8805 }
+      # add PFCP, GTP configurations as needed
+    }
