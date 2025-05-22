@@ -15,6 +15,7 @@ spec:
       containers:
         - name: upf
           image: "{{ .Values.images.upf.repository }}:{{ .Values.images.upf.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
           ports:
             - containerPort: {{ .Values.upf.port }}
           volumeMounts:
