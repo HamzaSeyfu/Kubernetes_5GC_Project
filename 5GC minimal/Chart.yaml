@@ -1,3 +1,4 @@
+# Version a adapter peut-être problème vient de la
 apiVersion: v2
 name: minimal5gc
 description: "Helm chart minimal pour un cœur 5G minimal (AMF, SMF, UPF)"
