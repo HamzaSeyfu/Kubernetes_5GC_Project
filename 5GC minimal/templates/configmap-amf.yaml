@@ -1,3 +1,4 @@
+# Tester : changement de versions
 apiVersion: v1
 kind: ConfigMap
 metadata:
