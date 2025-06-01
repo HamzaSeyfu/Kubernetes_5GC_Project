@@ -1,327 +1,384 @@
-Voici une méthode simple pour **itérer rapidement** sur plusieurs images publiques d’AMF, SMF et UPF, afin de repérer celles qui démarrent correctement dans votre chart minimal5gc. L’idée est :
-
-1. **Lister quelques candidats d’images officielles ou couramment utilisées**
-2. **Déployer rapidement le chart en surchargeant à la volée les champs `images.*.repository` et `images.*.tag`**
-3. **Vérifier si chaque pod (AMF/SMF/UPF) passe en `Running`**
-4. **Choisir la combinaison qui fonctionne, puis la fixer définitivement dans `values.yaml`**
+Pour diagnostiquer rapidement pourquoi ni `free5gc/amf:v3.0.11` ni `ghcr.io/orange-opensource/free5gc-amf:v3.0.6` ne fonctionnent, puis trouver une combinaison qui démarre, voici une serie d’étapes concrètes :
 
 ---
 
-## 1. Quelques images publiques à tester
+## 1. Pourquoi les deux premières combinaisons ont échoué
 
-En général, on trouve deux familles principales d’images pour Free5GC (ou implémentations 5G Core) :
+1. **`free5gc/amf:v3.0.11` (et équivalents SMF/UPF) : Erreur “not found”**
 
-1. **Images “Free5GC” officielles sur Docker Hub**
+   ```
+   Failed to pull image "free5gc/amf:v3.0.11": failed to resolve reference "docker.io/free5gc/amf:v3.0.11": manifest unknown: manifest unknown
+   ```
 
-   * `free5gc/amf`
-   * `free5gc/smf`
-   * `free5gc/upf`
-   * Tags souvent du type `v3.0.11`, `v3.0.10` ou `latest`
+   → Le tag `v3.0.11` **n’existe pas** sur Docker Hub. Les images officielles `free5gc/amf` n’ont pas ce tag.
 
-2. **Images packagées par Orange sur GitHub Container Registry**
+2. **`ghcr.io/orange-opensource/free5gc-amf:v3.0.6` (et SMF/UPF) : Erreur 403 Forbidden**
 
-   * `ghcr.io/orange-opensource/free5gc-amf`
-   * `ghcr.io/orange-opensource/free5gc-smf`
-   * `ghcr.io/orange-opensource/free5gc-upf`
-   * Tags souvent du type `v3.0.6`, `v3.0.7`, etc.
+   ```
+   failed to pull and unpack image "ghcr.io/orange-opensource/free5gc-amf:v3.0.6": failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Aorange-opensource%2Ffree5gc-amf%3Apull&service=ghcr.io: 403 Forbidden
+   ```
 
-3. **(Éventuellement) autres forks ou builds communautaires**
-
-   * Par exemple : `mfazza/5gc-amf` ou `zlaczed/5gc-smf` (ces noms sont hypothétiques – si vous trouvez un fork GitHub d’une équipe tierce, vous pouvez l’essayer).
-   * Dans la suite je vais surtout illustrer avec les deux premières familles.
+   → Les images Orange sur GitHub Container Registry **sont privées** ou nécessitent une authentification (token). Impossible de les “docker pull” directement sans disposer d’un secret GHCR.
 
 ---
 
-## 2. Procédure pas à pas pour tester en CLI
+## 2. Choisir des images publiques valides
 
-Pour chaque ensemble d’images (AMF+SMF+UPF), vous allez :
+Je vous propose d’essayer **directement les tags “latest”** (ou les versions antérieures existantes) sur Docker Hub. Les trois images officielles “free5gc” sur Docker Hub sont :
 
-1. **Désinstaller** d’éventuelles releases existantes
-2. **Lancer** le chart en surchargeant la partie `images.*`
-3. **Attendre 20-30 s** que Kubernetes tire les images et crée les pods
-4. **Vérifier** l’état des pods (et leurs logs si nécessaire)
-5. **Noter** si les trois pods se mettent en `Running` (et restent stables) ou s’il y a une `CrashLoopBackOff` / `ErrImagePull` / autre
-6. **Désinstaller** avant de passer à la combi suivante
+* `free5gc/amf`
+* `free5gc/smf`
+* `free5gc/upf`
 
-### 2.1 Exemple de commande générique
+Elles ont au moins un tag `latest`, et souvent des tags `v3.0.10`, `v3.0.9`, etc.
+Nous allons tester, dans l’ordre :
 
-Puisque vous avez déjà un dossier `5GC minimal/` avec `Chart.yaml` + `values.yaml` (sans affecter la partie `images:`), on fera par exemple :
+1. `free5gc/amf:latest` – `free5gc/smf:latest` – `free5gc/upf:latest`
+2. `free5gc/amf:v3.0.10` – `free5gc/smf:v3.0.10` – `free5gc/upf:v3.0.10`
+3. `free5gc/amf:v3.0.9` –  `free5gc/smf:v3.0.9` –  `free5gc/upf:v3.0.9`
+
+Dès qu’une combinaison fait passer les 3 pods en `Running`, nous validerons ces tags et les fixerons dans `values.yaml`.
+
+---
+
+## 3. Procédure pas à pas pour tester chaque combinaison
+
+À chaque essai :
+
+1. **Désinstaller** la release existante
+2. **Installer** le chart en surchargeant les trois images (AMF, SMF, UPF)
+3. **Attendre** 15–20 s que les pods tentent de démarrer
+4. **Vérifier** l’état (`kubectl get pods`)
+5. Si tout est en `Running`, on garde cette combinaison et on met à jour `values.yaml`. Autrement, on passe à la combinaison suivante.
+
+### 3.1 Préparez-vous dans le dossier du chart minimal
 
 ```bash
 cd ~/Kubernetes_5GC_Project-main/5GC\ minimal
-
-# (1) Désinstaller l’ancienne release, s’il en existait une
-helm uninstall minimal5gc --namespace default || true
-
-# (2) Installer en surchargeant les images pour AMF, SMF et UPF
-helm install minimal5gc . \
-  --set imagePullPolicy=IfNotPresent \
-  --set images.amf.repository=<AMF_REPO> \
-  --set images.amf.tag=<AMF_TAG> \
-  --set images.smf.repository=<SMF_REPO> \
-  --set images.smf.tag=<SMF_TAG> \
-  --set images.upf.repository=<UPF_REPO> \
-  --set images.upf.tag=<UPF_TAG>
 ```
 
-* Remplacez `<AMF_REPO>`, `<AMF_TAG>`, etc. par les images que vous voulez tester.
-* L’argument `--set imagePullPolicy=IfNotPresent` garantit qu’on n’essaiera pas de télécharger une image absente si vous avez déjà implanté une version locale.
-
-### 2.2 Combinaisons à essayer dans l’ordre
-
-Ci-dessous, un tableau de 4 combinaisons courantes :
-
-| N° | AMF                                               | SMF                                               | UPF                                               |
-| -- | ------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------- |
-| 1  | `free5gc/amf` `:v3.0.11`                          | `free5gc/smf` `:v3.0.11`                          | `free5gc/upf` `:v3.0.11`                          |
-| 2  | `free5gc/amf` `:latest`                           | `free5gc/smf` `:latest`                           | `free5gc/upf` `:latest`                           |
-| 3  | `ghcr.io/orange-opensource/free5gc-amf` `:v3.0.6` | `ghcr.io/orange-opensource/free5gc-smf` `:v3.0.6` | `ghcr.io/orange-opensource/free5gc-upf` `:v3.0.6` |
-| 4  | `ghcr.io/orange-opensource/free5gc-amf` `:latest` | `ghcr.io/orange-opensource/free5gc-smf` `:latest` | `ghcr.io/orange-opensource/free5gc-upf` `:latest` |
-
-**Important** : le tag `:latest` n’est pas toujours fiable (parfois il n’existe pas, ou correspond à une version instable). Commencez donc de préférence par la ligne 1, puis la ligne 3 (versions stables Orange). Si la ligne 1 plante (`ErrImagePull` ou `CrashLoopBackOff`), passez à la ligne 2 ou ­`3`.
-
----
-
-### 2.3 Exemple concret pour la première combinaison
-
-1. **Positionnez-vous** dans le dossier `5GC minimal/` puis lancez :
-
-   ```bash
-   cd ~/Kubernetes_5GC_Project-main/5GC\ minimal
-   helm uninstall minimal5gc --namespace default || true
-
-   helm install minimal5gc . \
-     --set imagePullPolicy=IfNotPresent \
-     --set images.amf.repository=free5gc/amf \
-     --set images.amf.tag=v3.0.11 \
-     --set images.smf.repository=free5gc/smf \
-     --set images.smf.tag=v3.0.11 \
-     --set images.upf.repository=free5gc/upf \
-     --set images.upf.tag=v3.0.11
-   ```
-
-2. **Patienter 15 s**, puis vérifiez :
-
-   ```bash
-   kubectl get pods
-   ```
-
-   * Si vous voyez
-
-     ```
-     minimal5gc-minimal5gc-amf-xxxxx   1/1   Running   0   25s
-     minimal5gc-minimal5gc-smf-xxxxx   1/1   Running   0   25s
-     minimal5gc-minimal5gc-upf-xxxxx   1/1   Running   0   25s
-     ```
-
-     alors **bravo**, cette combinaison fonctionne : gardez ces valeurs dans votre `values.yaml`.
-   * Si vous voyez `ErrImagePull` ou `ImagePullBackOff`, alors soit le tag n’existe pas, soit le repo n’est pas public. Dans ce cas, appuyez sur **Ctrl +C** (pour stopper toute attente) et passez à la combinaison suivante.
-
-3. Pour diagnostiquer (si l’un des pods ne démarre pas) :
-
-   ```bash
-   # Décrire un pod pour voir la raison exacte
-   kubectl describe pod minimal5gc-minimal5gc-amf-xxxxx
-   # ou lire les logs (exemple pour AMF)
-   kubectl logs deploy/minimal5gc-amf
-   ```
-
-   * Recherche : `Failed to pull image ...` → repository/tag incorrect
-   * Ou `CrashLoopBackOff` → l’image est tirée, mais le binaire à l’intérieur plante (par exemple, configuration incomplète ou binaire incompatible)
-
-4. **Désinstallez** avant d’essayer la combi suivante :
-
-   ```bash
-   helm uninstall minimal5gc --namespace default
-   ```
-
----
-
-### 2.4 Tester les autres combinaisons
-
-Réitérez exactement la même procédure pour les lignes 2, 3 et 4 du tableau. Par exemple, pour la ligne 3 (Orange v3.0.6) :
-
-```bash
-cd ~/Kubernetes_5GC_Project-main/5GC\ minimal
-helm uninstall minimal5gc --namespace default || true
-
-helm install minimal5gc . \
-  --set imagePullPolicy=IfNotPresent \
-  --set images.amf.repository=ghcr.io/orange-opensource/free5gc-amf \
-  --set images.amf.tag=v3.0.6 \
-  --set images.smf.repository=ghcr.io/orange-opensource/free5gc-smf \
-  --set images.smf.tag=v3.0.6 \
-  --set images.upf.repository=ghcr.io/orange-opensource/free5gc-upf \
-  --set images.upf.tag=v3.0.6
-
-kubectl get pods
-```
-
-* **Si** les trois pods passent en `Running` → vous retenez cette combinaison (orange-opensource v3.0.6).
-* **Sinon** → notez l’erreur, puis désinstallez et testez la ligne 4 (Orange\:latest), etc.
-
----
-
-## 3. Une fois la bonne combinaison trouvée, fixez-la dans `values.yaml`
-
-Imaginons que **seule la ligne 3 (Orange v3.0.6) fonctionne** (AMF, SMF et UPF passent en `Running`). Alors modifiez **définitivement** votre `5GC minimal/values.yaml` comme suit :
+Assurez-vous d’avoir bien dans `values.yaml` au minimum :
 
 ```yaml
-# values.yaml (mise à jour définitive)
-
 imagePullPolicy: IfNotPresent
 
 images:
   amf:
-    repository: ghcr.io/orange-opensource/free5gc-amf
-    tag: v3.0.6
+    repository: free5gc/amf
+    tag: latest       # on écrase ce champ par --set
   smf:
-    repository: ghcr.io/orange-opensource/free5gc-smf
-    tag: v3.0.6
+    repository: free5gc/smf
+    tag: latest       # on écrase ce champ par --set
   upf:
-    repository: ghcr.io/orange-opensource/free5gc-upf
-    tag: v3.0.6
-
-# AMF configuration
-amf:
-  replicaCount: 1
-  port: 7777
-  config: |
-    {
-      "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 7777 },
-      "smf": { "address": "{{ include \"minimal5gc.fullname\" . }}-smf", "port": 7778 }
-    }
-
-# SMF configuration
-smf:
-  replicaCount: 1
-  port: 7778
-  config: |
-    {
-      "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 7778 },
-      "amf": { "address": "{{ include \"minimal5gc.fullname\" . }}-amf", "port": 7777 },
-      "upf": { "address": "{{ include \"minimal5gc.fullname\" . }}-upf", "port": 8805 }
-    }
-
-# UPF configuration
-upf:
-  replicaCount: 1
-  port: 8805
-  config: |
-    {
-      "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 8805 }
-      # (ajoutez ici PFCP/GTP si nécessaire)
-    }
+    repository: free5gc/upf
+    tag: latest       # on écrase ce champ par --set
 ```
 
-* Enregistrez le fichier.
-* Ensuite, pour être sûr que votre cluster est à jour :
+Et dans **templates/deployment-\*.yaml**, juste après `image: …`, avoir :
 
-  ```bash
-  helm uninstall minimal5gc || true
-  helm install minimal5gc .
-  kubectl get pods
+```yaml
+imagePullPolicy: {{ .Values.imagePullPolicy }}
+```
+
+### 3.2 Combinaison 1 : `latest`
+
+```bash
+# 1) Désinstallez la release existante, s’il y en a une
+helm uninstall minimal5gc --namespace default || true
+
+# 2) Installez en surchargeant sur “latest”
+helm install minimal5gc . \
+  --set imagePullPolicy=IfNotPresent \
+  --set images.amf.repository=free5gc/amf \
+  --set images.amf.tag=latest \
+  --set images.smf.repository=free5gc/smf \
+  --set images.smf.tag=latest \
+  --set images.upf.repository=free5gc/upf \
+  --set images.upf.tag=latest
+
+# 3) Attendez 20 s pour laisser le temps aux pods de se tirer et d'essayer de démarrer
+sleep 20
+
+# 4) Vérifiez l’état des pods
+kubectl get pods
+```
+
+* Si vous obtenez **trois pods en `Running`**, c’est gagné :
+
+  ```
+  NAME                                     READY   STATUS    RESTARTS   AGE
+  minimal5gc-minimal5gc-amf-xxxxx          1/1    Running    0        30s
+  minimal5gc-minimal5gc-smf-xxxxx          1/1    Running    0        30s
+  minimal5gc-minimal5gc-upf-xxxxx          1/1    Running    0        30s
   ```
 
-Vous verrez alors à chaque `helm install` que Kubernetes utilise les images Orange v3.0.6, sans jamais re­surcharger un tag qui pointe sur `latest`.
+  → Alors fixez “latest” dans votre `values.yaml` et sortez du processus de tests.
+* Sinon, notez l’erreur (par ex. `ErrImagePull` ou `CrashLoopBackOff`), puis passez à la combinaison suivante :
+
+```bash
+helm uninstall minimal5gc --namespace default
+```
+
+### 3.3 Combinaison 2 : `v3.0.10`
+
+*(Il se peut que Docker Hub héberge `v3.0.10`. Si ce tag n’existe pas non plus, vous pourrez voir `ErrImagePull` et passer à la combinaison 3.)*
+
+```bash
+helm install minimal5gc . \
+  --set imagePullPolicy=IfNotPresent \
+  --set images.amf.repository=free5gc/amf \
+  --set images.amf.tag=v3.0.10 \
+  --set images.smf.repository=free5gc/smf \
+  --set images.smf.tag=v3.0.10 \
+  --set images.upf.repository=free5gc/upf \
+  --set images.upf.tag=v3.0.10
+
+sleep 20
+kubectl get pods
+# Si Running → on garde v3.0.10
+# Sinon → helm uninstall minimal5gc, puis essai suivant
+helm uninstall minimal5gc --namespace default
+```
+
+### 3.4 Combinaison 3 : `v3.0.9`
+
+*(De même, on tente avec le tag `v3.0.9`. Si ça n’existe pas, on aura ErrImagePull → on passe.)*
+
+```bash
+helm install minimal5gc . \
+  --set imagePullPolicy=IfNotPresent \
+  --set images.amf.repository=free5gc/amf \
+  --set images.amf.tag=v3.0.9 \
+  --set images.smf.repository=free5gc/smf \
+  --set images.smf.tag=v3.0.9 \
+  --set images.upf.repository=free5gc/upf \
+  --set images.upf.tag=v3.0.9
+
+sleep 20
+kubectl get pods
+# Si Running → on garde v3.0.9
+# Sinon → on passe à une autre source d’images
+helm uninstall minimal5gc --namespace default
+```
 
 ---
 
-## 4. Récapitulatif (script simplifié)
+## 4. Si aucune de ces trois versions n’est disponible
 
-Si vous voulez automatiser ce test (à lancer à la main chaque fois), vous pouvez même créer un petit script bash dans `5GC minimal/` :
+Il arrive que Docker Hub ne publie que le tag `latest` (sans version numérotée) ou qu’il ait fait le ménage dans les anciens tags. Si `latest`, `v3.0.10` et `v3.0.9` ne donnent rien, essayez plutôt les deux combinaisons suivantes :
+
+* **Combinaison 4 : versions `v3.0.8`**
+
+  ```bash
+  helm install minimal5gc . \
+    --set imagePullPolicy=IfNotPresent \
+    --set images.amf.repository=free5gc/amf \
+    --set images.amf.tag=v3.0.8 \
+    --set images.smf.repository=free5gc/smf \
+    --set images.smf.tag=v3.0.8 \
+    --set images.upf.repository=free5gc/upf \
+    --set images.upf.tag=v3.0.8
+
+  sleep 20
+  kubectl get pods
+  helm uninstall minimal5gc --namespace default
+  ```
+* **Combinaison 5 : versions `v3.0.7`**
+
+  ```bash
+  helm install minimal5gc . \
+    --set imagePullPolicy=IfNotPresent \
+    --set images.amf.repository=free5gc/amf \
+    --set images.amf.tag=v3.0.7 \
+    --set images.smf.repository=free5gc/smf \
+    --set images.smf.tag=v3.0.7 \
+    --set images.upf.repository=free5gc/upf \
+    --set images.upf.tag=v3.0.7
+
+  sleep 20
+  kubectl get pods
+  helm uninstall minimal5gc --namespace default
+  ```
+
+En général, au moins **une** de ces variantes (`latest`, `v3.0.10`, `v3.0.9`, `v3.0.8`, `v3.0.7`) finit par permettre au pod d’atteindre `Running`.
+
+---
+
+## 5. Exemple complet de script bash de test
+
+Pour automatiser la séquence, créez un fichier `test_images.sh` dans `5GC minimal/` :
 
 ```bash
 #!/usr/bin/env bash
 set -e
 
-declare -A AMF_IMAGES=(
-  ["free5gc/amf"]="v3.0.11"
-  ["free5gc/amf"]="latest"
-  ["ghcr.io/orange-opensource/free5gc-amf"]="v3.0.6"
-  ["ghcr.io/orange-opensource/free5gc-amf"]="latest"
-)
-declare -A SMF_IMAGES=(
-  ["free5gc/smf"]="v3.0.11"
-  ["free5gc/smf"]="latest"
-  ["ghcr.io/orange-opensource/free5gc-smf"]="v3.0.6"
-  ["ghcr.io/orange-opensource/free5gc-smf"]="latest"
-)
-declare -A UPF_IMAGES=(
-  ["free5gc/upf"]="v3.0.11"
-  ["free5gc/upf"]="latest"
-  ["ghcr.io/orange-opensource/free5gc-upf"]="v3.0.6"
-  ["ghcr.io/orange-opensource/free5gc-upf"]="latest"
-)
-
-# Liste ordonnée de combinaisons à tester
+# Tableau de combinaisons “repo:tag” à tester dans l’ordre
 COMBOS=(
-  "free5gc/amf:v3.0.11 free5gc/smf:v3.0.11 free5gc/upf:v3.0.11"
   "free5gc/amf:latest free5gc/smf:latest free5gc/upf:latest"
-  "ghcr.io/orange-opensource/free5gc-amf:v3.0.6 ghcr.io/orange-opensource/free5gc-smf:v3.0.6 ghcr.io/orange-opensource/free5gc-upf:v3.0.6"
-  "ghcr.io/orange-opensource/free5gc-amf:latest ghcr.io/orange-opensource/free5gc-smf:latest ghcr.io/orange-opensource/free5gc-upf:latest"
+  "free5gc/amf:v3.0.10 free5gc/smf:v3.0.10 free5gc/upf:v3.0.10"
+  "free5gc/amf:v3.0.9 free5gc/smf:v3.0.9 free5gc/upf:v3.0.9"
+  "free5gc/amf:v3.0.8 free5gc/smf:v3.0.8 free5gc/upf:v3.0.8"
+  "free5gc/amf:v3.0.7 free5gc/smf:v3.0.7 free5gc/upf:v3.0.7"
 )
 
 for combo in "${COMBOS[@]}"; do
-  read -r AMF_IMG SMF_IMG UPF_IMG <<<"$combo"
-  echo "==== Test de $AMF_IMG / $SMF_IMG / $UPF_IMG ===="
+  # Découper la chaîne “repo:tag” pour chaque NF
+  read -r AMF_FULL SMF_FULL UPF_FULL <<<"$combo"
+  AMF_REPO="${AMF_FULL%%:*}"
+  AMF_TAG="${AMF_FULL##*:}"
+  SMF_REPO="${SMF_FULL%%:*}"
+  SMF_TAG="${SMF_FULL##*:}"
+  UPF_REPO="${UPF_FULL%%:*}"
+  UPF_TAG="${UPF_FULL##*:}"
 
+  echo
+  echo "============================================"
+  echo " Test des images :"
+  echo "   AMF → $AMF_REPO:$AMF_TAG"
+  echo "   SMF → $SMF_REPO:$SMF_TAG"
+  echo "   UPF → $UPF_REPO:$UPF_TAG"
+  echo "--------------------------------------------"
+
+  # 1) Désinstaller l’ancienne release (pour repartir à zéro)
   helm uninstall minimal5gc --namespace default || true
 
+  # 2) Installer en surchargeant les images
   helm install minimal5gc . \
     --set imagePullPolicy=IfNotPresent \
-    --set images.amf.repository="${AMF_IMG%%:*}" \
-    --set images.amf.tag="${AMF_IMG##*:}" \
-    --set images.smf.repository="${SMF_IMG%%:*}" \
-    --set images.smf.tag="${SMF_IMG##*:}" \
-    --set images.upf.repository="${UPF_IMG%%:*}" \
-    --set images.upf.tag="${UPF_IMG##*:}"
+    --set images.amf.repository="$AMF_REPO" \
+    --set images.amf.tag="$AMF_TAG" \
+    --set images.smf.repository="$SMF_REPO" \
+    --set images.smf.tag="$SMF_TAG" \
+    --set images.upf.repository="$UPF_REPO" \
+    --set images.upf.tag="$UPF_TAG"
 
-  echo "→ Attente 20 s pour que les pods démarrent…"
+  # 3) Attendre que les pods démarrent
+  echo "→ En attente de 20 s pour le pull et le démarrage des pods..."
   sleep 20
 
+  # 4) Afficher l’état des pods
   kubectl get pods
-  echo
+  
+  # 5) Vérifier si tous les pods sont en Running
+  ALL_RUNNING=true
+  for nf in amf smf upf; do
+    pod_name=$(kubectl get pods -l app=minimal5gc-minimal5gc-$nf -o jsonpath='{.items[0].status.phase}')
+    if [[ "$pod_name" != "Running" ]]; then
+      ALL_RUNNING=false
+    fi
+  done
 
-  echo "→ Lire les logs pour vérifier le démarrage :"
-  echo "  AMF logs : kubectl logs deploy/minimal5gc-amf"
-  echo "  SMF logs : kubectl logs deploy/minimal5gc-smf"
-  echo "  UPF logs : kubectl logs deploy/minimal5gc-upf"
-  echo
-  echo "------------------------------------------------------"
-  echo
+  if $ALL_RUNNING; then
+    echo
+    echo "→ Succès : Tous les pods (AMF, SMF, UPF) sont en Running avec les images $combo"
+    echo "→ Copiez ces trois lignes dans values.yaml :"
+    echo "    images:"
+    echo "      amf:"
+    echo "        repository: $AMF_REPO"
+    echo "        tag: $AMF_TAG"
+    echo "      smf:"
+    echo "        repository: $SMF_REPO"
+    echo "        tag: $SMF_TAG"
+    echo "      upf:"
+    echo "        repository: $UPF_REPO"
+    echo "        tag: $UPF_TAG"
+    exit 0
+  else
+    echo "→ Échec avec cette combinaison (au moins un pod n’est pas en Running)."
+    echo "  → Status détaillé :"
+    kubectl get pods
+    echo
+    echo "→ Désinstallation pour tester la prochaine combinaison..."
+    helm uninstall minimal5gc --namespace default || true
+    echo
+  fi
 done
 
-echo "Tests terminés. Choisissez la combinaison qui fonctionne et ajustez votre values.yaml."
+echo
+echo "Aucune combinaison valide n’a permis d’avoir les 3 pods en Running. Vérifiez vos tags ou votre connexion Internet."
+exit 1
 ```
 
-* Sauvegardez ce script sous `5GC minimal/test_images.sh`, puis :
+1. **Sauvegardez** ce script sous `5GC minimal/test_images.sh` puis rendez-le exécutable :
 
-  ```bash
-  chmod +x test_images.sh
-  ./test_images.sh
-  ```
-* Il va itérer sur chaque combinaison, déployer, attendre 20 s, afficher l’état des pods et proposer les logs pour vous laisser vérifier si chaque pod est stable.
+   ```bash
+   cd ~/Kubernetes_5GC_Project-main/5GC\ minimal
+   chmod +x test_images.sh
+   ```
+
+2. **Lancez** :
+
+   ```bash
+   ./test_images.sh
+   ```
+
+* Le script va, pour chacune des 5 combinaisons (`latest`, `v3.0.10`, `v3.0.9`, `v3.0.8`, `v3.0.7`), déployer le chart, attendre 20 s, puis vérifier si les pods `amf`, `smf` et `upf` sont passés en `Running`.
+* Au premier succès, il affichera la combinaison gagnante et la commande à copier dans votre `values.yaml`.
+* Si aucune combinaison ne fonctionne, cela signifie soit que Docker Hub ne propose pas ces tags, soit que votre machine n’a pas accès à Internet pour les télécharger.
 
 ---
 
-### 5. Conclusion
+## 6. À la fin du test : fixer la combinaison dans `values.yaml`
 
-1. **Choisissez la combinaison (AMF/SMF/UPF) qui met les 3 pods en `Running` sans `ErrImagePull` ni `CrashLoopBackOff`.**
-2. **Copiez-collez ces trois lignes dans votre `values.yaml`** pour verrouiller définitivement ces images :
+Dès que le script (ou vos essais manuels) indique une combinaison qui fonctionne, ouvrez **`5GC minimal/values.yaml`** et remplacez la section `images:` par :
 
-   ```yaml
-   images:
-     amf:
-       repository: <LA_COMBINAISON_AMF_REPO>
-       tag: <LE_TAG_QUI_FONCTIONNE>
-     smf:
-       repository: <LA_COMBINAISON_SMF_REPO>
-       tag: <LE_TAG_QUI_FONCTIONNE>
-     upf:
-       repository: <LA_COMBINAISON_UPF_REPO>
-       tag: <LE_TAG_QUI_FONCTIONNE>
-   ```
-3. **Relancez ensuite** un `helm uninstall minimal5gc && helm install minimal5gc .` pour vous assurer que tout est stable.
+```yaml
+images:
+  amf:
+    repository: <LE_REPO_QUI_FONCTIONNE>
+    tag: <LE_TAG_QUI_FONCTIONNE>
+  smf:
+    repository: <LE_REPO_QUI_FONCTIONNE>
+    tag: <LE_TAG_QUI_FONCTIONNE>
+  upf:
+    repository: <LE_REPO_QUI_FONCTIONNE>
+    tag: <LE_TAG_QUI_FONCTIONNE>
+```
 
-Avec cette démarche, vous aurez testé **rapidement** plusieurs images publiques, choisi celle qui fonctionne dans votre environnement Kind, et mis à jour votre chart minimal5gc en conséquence.
+Par exemple, si la combinaison gagnante est :
+
+```
+free5gc/amf:v3.0.10
+free5gc/smf:v3.0.10
+free5gc/upf:v3.0.10
+```
+
+Alors vous mettez :
+
+```yaml
+imagePullPolicy: IfNotPresent
+
+images:
+  amf:
+    repository: free5gc/amf
+    tag: v3.0.10
+  smf:
+    repository: free5gc/smf
+    tag: v3.0.10
+  upf:
+    repository: free5gc/upf
+    tag: v3.0.10
+
+# … reste de votre config AMF/SMF/UPF …
+```
+
+Puis relancez :
+
+```bash
+helm uninstall minimal5gc --namespace default || true
+helm install minimal5gc .
+kubectl get pods
+```
+
+Vous aurez alors **définitivement** les bonnes images dans `values.yaml` et vos pods resteront en `Running` à chaque nouveau `helm install`.
+
+---
+
+### En résumé
+
+1. **`ErrImagePull`** avec `v3.0.11` (inexistant) et **`403 Forbidden`** avec la version Orange (`v3.0.6`) confirment que ces tags ne sont pas accessibles au public.
+2. **Essayez les tags “latest” puis “v3.0.10”, “v3.0.9”**, etc. sur le repo **`free5gc/amf`, `free5gc/smf`, `free5gc/upf`**.
+3. **Le petit script** `test_images.sh` dans `5GC minimal/` vous aidera à automatiser ces essais.
+4. **Une fois une combinaison OK trouvée**, copiez-la dans **`values.yaml`** et déployez pour avoir vos pods **en Running** de manière pérenne.
+
+Ainsi vous saurez exactement quelles images publiques démarrent correctement pour AMF, SMF et UPF dans votre chart minimal.
