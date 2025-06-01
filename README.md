@@ -1121,6 +1121,9 @@ Si tu tiens vraiment à builder tes propres images :
    kubectl get pods
    ```
 
+  ```bash
+  https://github.com/Orange-OpenSource/towards5gs-helm/tree/main
+  ```
 ---
 
 **En résumé**
