@@ -1036,3 +1036,96 @@ k3d image import \
    ```
 
 À ce stade, Kubernetes utilisera vos images locales (pas besoin de pull depuis Docker Hub) et vous ne verrez plus d’`ErrImagePull`.
+
+
+Deux solutions rapides :
+
+---
+
+## 1) Ne pas build du tout, utiliser des images publiques
+
+Si tu n’as pas les sources Docker sous la main, tu peux simplement laisser Kubernetes puller des images déjà publiées. Par exemple, pour reprendre les images Orange officiellement packagées :
+
+1. Dans **minimal5gc/values.yaml**, remplace la section `images:` par quelque chose comme :
+
+   ```yaml
+   imagePullPolicy: IfNotPresent
+
+   images:
+     amf:
+       repository: ghcr.io/orange-opensource/free5gc-amf
+       tag: v3.0.6
+     smf:
+       repository: ghcr.io/orange-opensource/free5gc-smf
+       tag: v3.0.6
+     upf:
+       repository: ghcr.io/orange-opensource/free5gc-upf
+       tag: v3.0.6
+   ```
+
+   Ajuste les tags (`v3.0.6`) selon ce qui est disponible upstream.
+
+2. Désinstalle et réinstalle ton chart :
+
+   ```bash
+   helm uninstall minimal5gc || true
+   helm install minimal5gc .
+   kubectl get pods
+   ```
+
+Tu verras tes pods passer en `Running` sans jamais avoir à builder quoi que ce soit.
+
+---
+
+## 2) Récupérer les Dockerfiles et builder localement
+
+Si tu tiens vraiment à builder tes propres images :
+
+1. **Clone** le dépôt original qui contient le dossier `docker/` (c’est celui que tu avais zippé) :
+
+   ```bash
+   cd ~/Kubernetes_5GC_Project-main
+   git clone https://github.com/<orga>/towards5gs-helm.git upstream
+   cd upstream
+   ```
+
+2. **Builde** les images :
+
+   ```bash
+   docker build -t free5gc/amf:v3.0.11   -f docker/free5gc/amf/Dockerfile   docker/free5gc/amf
+   docker build -t free5gc/smf:v3.0.11   -f docker/free5gc/smf/Dockerfile   docker/free5gc/smf
+   docker build -t free5gc/upf:v3.0.11   -f docker/free5gc/upf/Dockerfile   docker/free5gc/upf
+   ```
+
+3. **Charge**-les dans ton cluster local :
+
+   * **k3d** :
+
+     ```bash
+     k3d image import free5gc/amf:v3.0.11 free5gc/smf:v3.0.11 free5gc/upf:v3.0.11 -c 5gc
+     ```
+   * **Minikube** :
+
+     ```bash
+     minikube image load free5gc/amf:v3.0.11
+     minikube image load free5gc/smf:v3.0.11
+     minikube image load free5gc/upf:v3.0.11
+     ```
+
+4. **Re-déploie** ton chart depuis `minimal5gc/` :
+
+   ```bash
+   cd ../5GC\ minimal
+   helm uninstall minimal5gc || true
+   helm install minimal5gc .
+   kubectl get pods
+   ```
+
+---
+
+**En résumé**
+
+* Si tu ne veux *vraiment pas* télécharger/build, utilise les images Orange officielles dans `values.yaml`.
+* Si tu préfères ta propre build, commence par cloner le dépôt complet qui contient le dossier `docker/`, puis build/import les images avant de réinstaller le chart.
+
+Choisis l’une ou l’autre et dis-moi si ça te dépanne !
