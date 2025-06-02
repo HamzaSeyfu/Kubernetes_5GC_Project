@@ -1,275 +1,240 @@
-Voici ce que je vois d’après vos dernières captures :
+Ce que l’on voit dans votre dernier `kubectl describe` est en fait la source du problème : votre conteneur « AMF » tourne en fait l’image `free5gc/smf:latest`, et non `free5gc/amf:latest`. Du coup, le binaire SMF se lance, exécute sa tâche (ou affiche son aide) et se termine immédiatement avec un code de sortie 0. Kubernetes, avec `restartPolicy: Always`, voit que le conteneur a terminé (Exit Code 0) et tente de le redémarrer indéfiniment, ce qui se traduit par un CrashLoopBackOff. En clair :
 
-1. **Tous les pods (AMF, SMF, UPF) sont en `CrashLoopBackOff`**
-   Même si, dans la sortie de `kubectl describe pod ...` le conteneur apparaît brièvement en **Running**, il redémarre aussitôt (d’où un CrashLoopBackOff permanent). Autrement dit, l’instance “en Running” que vous décrivez n’est qu’un tout petit laps de temps avant qu’elle plante à nouveau.
+1. **AMF Pod**
 
-2. **Le ping fonctionne, mais le test TCP/HTTP que vous avez fait ciblait le mauvais pod/port**
+   * `Image:   free5gc/smf:latest`
+   * **Last State → Completed, Exit Code 0** (le binaire SMF s’est terminé normalement)
+   * **State → Waiting, Reason → CrashLoopBackOff** (K8s relance sans cesse un conteneur qui quitte immédiatement)
 
-   * Vous avez pingé **10.244.0.9**, qui est l’IP du pod SMF. Le ping était OK, donc le réseau CNI est bien configuré.
-   * Ensuite vous avez tapé
-
-     ```bash
-     telnet 10.244.0.9 8805  
-     nc -zv 10.244.0.9 8805  
-     wget -qO- http://10.244.0.9:8805/nnrf-nfm/v1/nf-instances  
-     ```
-
-     → Mais **10.244.0.9 (SMF) n’écoute jamais le port 8805**. Par définition :
-
-     * L’AMF expose son SBI HTTP sur le port **7777**,
-     * Le SMF expose son SBI HTTP sur le port **7778**,
-     * Le UPF expose son PFCP sur le port **8805** (et généralement rien en HTTP sur 8805).
-
-   En d’autres termes, lorsque vous faites `nc 10.244.0.9 8805`, il est normal que vous obteniez “Connection refused” : le SMF **n’écoute pas** sur 8805. Pour tester correctement :
-
-   * Si vous voulez vérifier que le SMF répond en HTTP, essayez le port **7778** sur 10.244.0.9, par exemple depuis le busybox :
-
-     ```sh
-     nc -zv 10.244.0.9 7778  
-     # ou  
-     wget -qO- http://10.244.0.9:7778/nnrf-nfm/v1/nf-instances
-     ```
-   * Si vous voulez vérifier l’UPF, utilisez l’IP du pod UPF (par exemple 10.244.0.8) et le port **8805** :
-
-     ```sh
-     nc -zv 10.244.0.8 8805  
-     # ou  
-     wget -qO- http://10.244.0.8:8805/  # (certains UPF ne répondent pas en HTTP mais check PFCP via UDP)
-     ```
-   * Pour l’AMF, ce sera l’IP associée (par exemple 10.244.0.10) sur le port **7777**.
-
-3. **Les pods CrashLoopBackOff ne restent jamais assez longtemps en “Running” pour accepter une connexion**
-
-   * Même si vous y arrivez à accéder brièvement (dans la capture précédente, l’UPF a pu être en Running au moment où vous avez décrit le pod), dès que vous tentez un `nc` ou un `wget`, l’application à l’intérieur du conteneur plante, ce qui provoque le redémarrage du pod.
-   * C’est pourquoi, lorsque vous affichez les logs via `kubectl logs -f minimal5gc-minimal5gc-upf-…`, vous n’obtenez rien : soit le processus meurt avant d’écrire quoi que ce soit, soit vous regardez le conteneur **après** qu’il ait crashé (il n’y a plus de sortie “en cours”).
-
-4. **Comment diagnostiquer le CrashLoopBackOff et tester la connectivité “au bon moment”**
-
-   ### a) Récupérer les logs de la dernière instance (avant crash)
-
-   Dès qu’un conteneur monument commence à tourner, Kubernetes redirige sa sortie vers un log temporaire. Mais lorsqu’il replante, un nouveau pod (ou conteneur) prend le relais. Pour voir les logs de l’instance **précédente**, faites :
-
-   ```bash
-   kubectl logs -p minimal5gc-minimal5gc-upf-9544f94c9-pz5g8
-   ```
-
-   ou, si vous ne connaissez pas l’identifiant exact du pod existant et qu’il y a plusieurs replis :
-
-   ```bash
-   K=$(kubectl get pods | grep minimal5gc-minimal5gc-upf | awk '{ print $1 }')
-   kubectl logs -p $K
-   ```
-
-   Vous devriez alors voir un **message d’erreur** (dans cette sortie « précédente ») expliquant pourquoi l’UPF se termine (ex. config JSON introuvable, port déjà utilisé, erreur de binding, etc.). Faites la même chose pour l’AMF et le SMF :
-
-   ```bash
-   kubectl logs -p $(kubectl get pods | grep minimal5gc-minimal5gc-amf | awk '{print $1}')  
-   kubectl logs -p $(kubectl get pods | grep minimal5gc-minimal5gc-smf | awk '{print $1}')
-   ```
-
-   ### b) Observer la raison du redémarrage
-
-   Pour chaque pod en CrashLoopBackOff, décrivez-le pour voir le “Reason” exact :
-
-   ```bash
-   kubectl describe pod minimal5gc-minimal5gc-amf-656f74d5b7-tpncc
-   ```
-
-   Dans la section **Status → Containers → Last State**, vous verrez quelque chose comme `Exit Code: 1` ou `Signal: 11`, voire un petit message “Error” ou “OOMKilled”. Ça vous oriente sur la cause (manque de config, mémoire insuffisante, binaire non trouvé…).
-
-   ### c) Tester la connectivité juste au moment où le conteneur est en Running
-
-   Pour augmenter votre fenêtre de temps, vous pouvez forcer un “sleep” dans l’entrée du conteneur (mais je vous recommande d’abord d’identifier la raison du crash en logs). Cependant, si vous voulez vraiment tester la connectivité quand le conteneur “touche brièvement au Running” :
-
-   1. Dans une console, exécutez :
-
-      ```bash
-      kubectl logs -f minimal5gc-minimal5gc-upf-9544f94c9-pz5g8
-      ```
-
-      Vous verrez le log défiler “en direct”.
-   2. Dans une autre console, bouclez sur `kubectl get pods -o wide` jusqu’à ce qu’il indique “Running” (et non “CrashLoopBackOff”) pour l’UPF. Ça ne dure que 1 ou 2 secondes, mais vous pouvez essayer dans cette fenêtre :
-
-      ```bash
-      kubectl get pods -o wide | grep minimal5gc-minimal5gc-upf | grep Running && \
-        echo "→ Tentative de connexion PFCP 10.244.0.8:8805…" && \
-        nc -zv 10.244.0.8 8805
-      ```
-
-      Si vous voyez que l’UPF s’est lancé “Enough” pour répondre à votre `nc -zv`, vous aurez le message “succeeded”. Sinon, il y aura “Connection refused” et dans vos logs simultanés (dans l’autre onglet) vous verrez pourquoi il s’est interrompu immédiatement.
-
-   ### d) Utiliser un pod de test “en pause” (optionnel)
-
-   Parfois, on crée un pod “pause” pour garder la stack réseau allumée et s’y connecter depuis un shell :
-
-   ```bash
-   kubectl run tester --rm -i -t --image=busybox:1.34 -- /bin/sh
-   ```
-
-   À l’intérieur de ce shell “tester”, vous pouvez faire :
-
-   ```shell
-   # ping
-   ping -c3 10.244.0.8       # IP de l’UPF
-   # test PFCP
-   nc -zv 10.244.0.8 8805
-   # test SBI SMF
-   nc -zv 10.244.0.9 7778
-   # test SBI AMF
-   nc -zv 10.244.0.10 7777
-   # test HTTP AMF
-   wget -qO- http://10.244.0.10:7777/nnrf-nfm/v1/nf-instances
-   ```
-
-   Si l’un de ces tests fonctionne **avant que le pod target ne plante**, vous saurez que la couche réseau est OK et que c’est vraiment l’application (le binaire AMF/SMF/UPF) qui plante.
+2. **SMF Pod et UPF Pod** probablement souffrent d’un problème similaire (image incorrecte ou binaire qui ne reste pas en écoute).
 
 ---
 
-## 4. Pourquoi les NF plantent-elles ? (hypothèses courantes)
+## 1. Correction immédiate : pointer chaque NF sur la bonne image
 
-1. **Configuration JSON incomplète ou malformée**
+Ouvrez votre `5GC minimal/values.yaml` et corrigez la section `images:` pour que chaque NF (amf, smf, upf) utilise bien le **package d’image correspondant**, par exemple :
 
-   * Si le fichier `amf.json`, `smf.json` ou `upf.json` contenu dans votre ConfigMap est invalide (virgule manquante, accolade fermante oubliée, etc.), le binaire se termine immédiatement sans démarrer.
-   * Par exemple, vous aviez dans `upf.json` uniquement :
+```yaml
+imagePullPolicy: IfNotPresent
 
-     ```json
-     {
-       "sbi": {"scheme":"http","ipv4":"0.0.0.0","port":8805}
-     }
-     ```
+images:
+  amf:
+    repository: free5gc/amf
+    tag: latest
 
-     Mais un UPF **attend** en plus une section `pfcp` ou `gtp` minimale pour démarrer. Si cette section est absente, le démarrage échoue.
+  smf:
+    repository: free5gc/smf
+    tag: latest
 
-2. **Absence de dépendance NRF ou MongoDB**
+  upf:
+    repository: free5gc/upf
+    tag: latest
 
-   * Certaines images “stand-alone” AMF/SMF essayent d’aller contacter un **NRF** ou une base **MongoDB** à leur démarrage. Si vous ne l’avez pas déployé, le conteneur plante.
-   * Exemple dans les logs (via `kubectl logs -p`) :
+# (reste de la config AMF/SMF/UPF…)
+```
 
-     ```
-     2025-06-01T10:00:00.123Z [ERR] Could not connect to NRF at 127.0.0.1:8000. Exiting…
-     ```
-   * Dans un déploiement minimal, il faut soit fournir un `nrf` factice (une adresse IP/Port lambda), soit monter un `nrf.json` qui met `"nrf": { "address": "dummy", "port": 80 }` pour forcer la logique à passer outre.
+En particulier, dans votre sortie, on voit :
 
-3. **Le binaire n’existe pas ou le `ENTRYPOINT` n’est pas correct**
+```
+Containers:
+  amf:
+    Image: free5gc/smf:latest
+    Last State: Completed (Exit Code 0)
+    State: Waiting (Reason CrashLoopBackOff)
+```
 
-   * Dans `deployment-upf.yaml`, si l’`image: free5gc/upf:latest` ne définit **pas** correctement l’ENTRYPOINT (parfois, l’image attend des arguments, comme `upfc -c /free5gc/config/upf.json`), le conteneur démarre, voit “commande inconnue” et se termine.
-   * Vérifiez le `Dockerfile` upstream (dans `docker/free5gc/upf/Dockerfile`) : il devrait indiquer l’entrée, par exemple
+Cela signifie que votre template `deployment-amf.yaml` a été généré (via `values.yaml`) avec `image: free5gc/smf:latest` au lieu de `free5gc/amf:latest`. À corriger ainsi :
 
-     ```dockerfile
-     ENTRYPOINT ["free5gc-upfd"]
-     CMD ["-c","/free5gc/config/upf.json"]
-     ```
-   * Si c’est absent, il faut ajouter `command:` et `args:` dans votre `deployment-upf.yaml`.
+```diff
+--- a/5GC minimal/values.yaml
++++ b/5GC minimal/values.yaml
+ images:
+-  amf:
+-    repository: free5gc/smf
+-    tag: latest
++  amf:
++    repository: free5gc/amf
++    tag: latest
+
+   smf:
+     repository: free5gc/smf
+     tag: latest
+   upf:
+     repository: free5gc/upf
+     tag: latest
+```
+
+Ensuite, relancez :
+
+```bash
+cd ~/Kubernetes_5GC_Project-main/5GC\ minimal
+helm uninstall minimal5gc || true
+helm install minimal5gc .
+```
+
+Vérifiez immédiatement avec :
+
+```bash
+kubectl get pods -o wide
+```
+
+Vous devriez maintenant voir le pod **AMF** tirer bien l’image `free5gc/amf:latest`, puis rester en état **Running** (au moins suffisamment pour écouter son port 7777). Pareil pour le SMF et l’UPF.
 
 ---
 
-## 5. Étapes concrètes pour corriger le minimum et obtenir des pods “Running”
+## 2. Tester la connectivité de chaque NF quand les pods sont Running
 
-1. **Inspectez vos ConfigMaps**
+Dès qu’un pod passe à l’état **Running**, vous pouvez vérifier qu’il accepte bien les connexions sur le bon port. Voici les combinaisons à tester, en supposant que vos pods tournent avec ces IP :
 
-   * `kubectl get cm minimal5gc-minimal5gc-amf-config -o yaml`
-   * `kubectl get cm minimal5gc-minimal5gc-smf-config -o yaml`
-   * `kubectl get cm minimal5gc-minimal5gc-upf-config -o yaml`
-     Assurez‐vous que la syntaxe JSON (indentation, virgules, accolades) est **strictement valide**. Vous pouvez copier le contenu dans un validateur JSON en ligne pour être sûr.
+* AMF : port **7777**
+* SMF : port **7778**
+* UPF : port **8805**
 
-2. **Ajoutez une configuration “dummy” pour la partie NRF/MongoDB** (pour AMF/SMF) si votre image l’attend. Par exemple, dans `amf.json`/`smf.json` :
+### 2.1 Récupérez les IP des pods
 
-   ```jsonc
-   {
-     "sbi": { "scheme": "http", "ipv4": "0.0.0.0", "port": 7777 },
-     "nrf": { "address": "127.0.0.1", "port": 8000, "scheme": "http" },
-     "mongodb": { "url": "mongodb://127.0.0.1:27017/free5gc" }
-   }
-   ```
+```bash
+kubectl get pods -o wide
+```
 
-   Ça force l’AMF à tenter de contacter un “NRF” inexistant sur localhost, mais au moins il ne crashera pas pour manque de “section”.
+Exemple de sortie corrigée :
 
-3. **Vérifiez l’`entrypoint` du conteneur**
+```
+NAME                           READY   STATUS    RESTARTS   AGE   IP          NODE
+minimal5gc-minimal5gc-amf-xxx  1/1     Running   0          10s   10.244.0.10 kind-control-plane
+minimal5gc-minimal5gc-smf-yyy  1/1     Running   0          10s   10.244.0.11 kind-control-plane
+minimal5gc-minimal5gc-upf-zzz  1/1     Running   0          10s   10.244.0.12 kind-control-plane
+```
 
-   * Regardez le Dockerfile (depuis le ZIP) :
+Notez bien ces IP (ici `10.244.0.10`, `10.244.0.11`, `10.244.0.12`), elles serviront pour valider la connectivité.
 
-     ```bash
-     sed -n '1,20p' ~/Kubernetes_5GC_Project-main/upstream/towards5gs-helm/docker/free5gc/upf/Dockerfile
-     ```
-   * Si vous remarquez une ligne `ENTRYPOINT [...]` ou `CMD [...]`, notez l’exécutable attendu (par exemple `free5gc-upf/upfd`).
-   * Dans votre `deployment-upf.yaml`, assurez-vous que vous **ne réécrasez pas** l’entrée par accident. S’il n’y a pas d’ENTRYPOINT, ajoutez dans `deployment-upf.yaml` :
+### 2.2 Lancer un pod “busybox” pour tester depuis l’intérieur du cluster
+
+```bash
+kubectl run test-shell \
+  --rm -i -t \
+  --image=busybox:1.34 \
+  --command /bin/sh
+```
+
+Dans le shell **busybox**, exécutez :
+
+```sh
+# 1) Tester ICMP (ping) pour chaque NF
+ping -c 3 10.244.0.10   # AMF
+ping -c 3 10.244.0.11   # SMF
+ping -c 3 10.244.0.12   # UPF
+
+# 2) Tester la couche SBI HTTP
+nc -zv 10.244.0.10 7777   # AMF
+nc -zv 10.244.0.11 7778   # SMF
+
+# 3) Tester la couche PFCP (UDP) pour UPF
+# busybox nc peut ne pas supporter UDP selon la version, essayez quand même :
+nc -zvu 10.244.0.12 8805
+
+# 4) Si vous voulez valider l’API HTTP AMF
+wget -qO- http://10.244.0.10:7777/nnrf-nfm/v1/nf-instances
+
+# 5) De même pour l’API SMF (il doit retourner un JSON ou au moins un code 200/204)
+wget -qO- http://10.244.0.11:7778/nnrf-nfm/v1/nf-instances
+```
+
+* **Attendu** :
+
+  * Le ping répond (0 % de perte).
+  * `nc -zv 10.244.0.10 7777` se termine par “succeeded” → l’AMF écoute bien sur 7777.
+  * `nc -zv 10.244.0.11 7778` se termine par “succeeded” → le SMF écoute bien sur 7778.
+  * `nc -zvu 10.244.0.12 8805` (UDP PFCP) retourne “succeeded” ou “open” → l’UPF écoute sur 8805.
+  * Les appels `wget` renvoient du JSON valide (ou au moins un code HTTP 200/204).
+
+Si tout ceci fonctionne, alors vos NFs sont correctement déployées et connectables.
+
+### 2.3 Tester depuis l’hôte via port‐forwarding
+
+Si vous préférez tester depuis votre machine locale (VM), faites :
+
+#### Pour l’AMF
+
+```bash
+# 1) Trouvez l’un des pods AMF
+POD_AMF=$(kubectl get pods | grep minimal5gc-minimal5gc-amf | awk '{print $1}')
+
+# 2) Creez un port‐forward
+kubectl port-forward $POD_AMF 7777:7777 &
+PID_FORWARD=$!
+
+# 3) Dans une autre fenêtre, testez localement
+curl http://127.0.0.1:7777/nnrf-nfm/v1/nf-instances
+
+# 4) Quand vous avez fini, tuez le port‐forward
+kill $PID_FORWARD
+```
+
+#### Pour le SMF
+
+```bash
+POD_SMF=$(kubectl get pods | grep minimal5gc-minimal5gc-smf | awk '{print $1}')
+kubectl port-forward $POD_SMF 7778:7778 &
+PID_FORWARD=$!
+curl http://127.0.0.1:7778/nnrf-nfm/v1/nf-instances
+kill $PID_FORWARD
+```
+
+#### Pour l’UPF (PFCP sur 8805)
+
+Le protocole PFCP est habituellement du UDP, donc vous ne pourrez pas faire un HTTP GET contre 8805. Vous pouvez au moins vérifier que le port est ouvert :
+
+```bash
+POD_UPF=$(kubectl get pods | grep minimal5gc-minimal5gc-upf | awk '{print $1}')
+kubectl port-forward $POD_UPF 8805:8805 &
+PID_FORWARD=$!
+# tester avec netcat en UDP depuis votre hôte
+nc -zvu 127.0.0.1 8805
+kill $PID_FORWARD
+```
+
+Si `nc -zvu 127.0.0.1 8805` répond “succeeded” ou “open”, cela signifie que l’UPF accepte bien des paquets PFCP sur 8805.
+
+---
+
+## 3. En résumé : pourquoi ça plantait et comment savoir que ça fonctionne
+
+1. **Cause du CrashLoopBackOff initial**
+
+   * Le pod AMF utilisait l’image SMF (`free5gc/smf:latest`) → le binaire SMF s’exécutait puis se terminait immédiatement (Exit Code 0), d’où la boucle de redémarrage.
+   * Même principe pour SMF/UPF si vous aviez des erreurs de config JSON ou des images non adaptées.
+
+2. **Correction**
+
+   * Modifiez votre `values.yaml` pour que :
 
      ```yaml
-     spec:
-       containers:
-         - name: upf
-           image: "{{ .Values.images.upf.repository }}:{{ .Values.images.upf.tag }}"
-           imagePullPolicy: {{ .Values.imagePullPolicy }}
-           command: ["free5gc-upfd"]        # ou le binaire exact
-           args: ["-c", "/free5gc/config/upf.json"]
-           ports:
-             - containerPort: {{ .Values.upf.port }}
-           volumeMounts:
-             - name: upf-config
-               mountPath: /free5gc/config
+     images:
+       amf:
+         repository: free5gc/amf
+         tag: latest
+       smf:
+         repository: free5gc/smf
+         tag: latest
+       upf:
+         repository: free5gc/upf
+         tag: latest
      ```
-   * Idem pour AMF/SMF : parfois l’image attend un binaire particulier ou des args (vérifiez la doc officielle).
+   * Relancez `helm uninstall minimal5gc && helm install minimal5gc .` et vérifiez que les pods passent en `1/1 Running`.
 
-4. **Déployez de nouveau et suivez immédiatement les logs “précédents”**
+3. **Validation fonctionnelle (connectivité)**
 
-   ```bash
-   helm uninstall minimal5gc || true
-   helm install minimal5gc .
-   # juste après, dès que vous voyez les pods passer à “ContainerCreating” → 
-   sleep 5
-   kubectl logs -p $(kubectl get pods | grep minimal5gc-minimal5gc-upf | awk '{print $1}')
-   # (idem pour AMF et SMF)
-   ```
+   * **ICMP** : `ping` entre pods pour confirmer que le réseau Kind fonctionne.
+   * **TCP/HTTP** :
 
-   Vous devriez maintenant voir une erreur beaucoup plus parlante (“Could not find free5gc-upfd binary” ou “config JSON incorrect”).
+     * AMF : port 7777
+     * SMF : port 7778
+   * **UDP/PFCP** :
 
-5. **Tester la connectivité quand le pod est encore “Running”**
-   Après avoir corrigé la config / l’entrypoint, relancez :
+     * UPF : port 8805 (utiliser `nc -zvu`).
+   * **API SBI** (HTTP) :
 
-   ```bash
-   helm uninstall minimal5gc || true
-   helm install minimal5gc .
-   sleep 10
-   kubectl get pods -o wide
-   ```
+     * `curl http://<IP_AMF>:7777/nnrf-nfm/v1/nf-instances`
+     * `curl http://<IP_SMF>:7778/nnrf-nfm/v1/nf-instances`
 
-   Tant qu’un pod apparaît en `Running` (même 10 secondes), ouvrez un autre terminal et faites un `nc -zv` / `wget` sur le port approprié. Exemple pour l’UPF :
-
-   ```bash
-   IP_UPF=$(kubectl get pods -o wide | grep minimal5gc-minimal5gc-upf | awk '{print $6}')
-   nc -zv $IP_UPF 8805
-   ```
-
-   Si vous obtenez “succeeded”, c’est que l’UPF écoute bien sur le port PFCP. Pour l’AMF :
-
-   ```bash
-   IP_AMF=$(kubectl get pods -o wide | grep minimal5gc-minimal5gc-amf | awk '{print $6}')
-   wget -qO- http://$IP_AMF:7777/nnrf-nfm/v1/nf-instances
-   ```
-
-   Et pour le SMF :
-
-   ```bash
-   IP_SMF=$(kubectl get pods -o wide | grep minimal5gc-minimal5gc-smf | awk '{print $6}')
-   wget -qO- http://$IP_SMF:7778/nnrf-nfm/v1/nf-instances
-   ```
-
----
-
-### En résumé
-
-1. **CrashLoopBackOff** signifie que l’application à l’intérieur du conteneur plante presque aussitôt.
-2. **Ping** → OK → le réseau CNI est correct.
-3. **`nc -zv 10.244.0.9 8805` → “Connection refused”** est normal si vous ciblez **SMF** (10.244.0.9) sur le port 8805, car SMF n’écoute pas là-dessus.
-4. Pour voir pourquoi **UPF/SMF/AMF** plantent, faites toujours `kubectl logs -p <pod>` (les logs « previous ») ou `kubectl describe pod <pod>` pour extraire le message d’erreur exact.
-5. Vérifiez que vos **ConfigMaps JSON** sont valides (s’ils contiennent des erreurs, le binaire lèvera immédiatement une exception).
-6. Assurez-vous que le **Dockerfile** définit bien un **ENTRYPOINT** ou ajoutez-le dans `deployment-*.yaml` (`command:` / `args:`) pour appeler le bon binaire avec le bon fichier de config.
-7. **Rebuild/déployez** et dès qu’un pod apparaît quelques secondes en `Running`, testez depuis un busybox ou par port-forwarding sur :
-
-   * AMF → port **7777**
-   * SMF → port **7778**
-   * UPF → port **8805**
-     → S’ils répondent, c’est que l’exécutable s’est lancé correctement.
-8. Une fois que chaque NF tourne (au moins assez longtemps pour répondre), corrigez définitivement `values.yaml` et vos templates, puis reclonez le déploiement.
-
-Avec ces étapes, vous devriez pouvoir isoler la cause du CrashLoopBackOff (config manquante ou binaire qui n’est pas exécuté) et valider, à chaque instants où les pods sont “Running”, la connectivité SBI (HTTP) et PFCP dans votre cluster Kind.
+Dès que ces tests retournent (1) un ping OK, (2) “succeeded” sur les `nc -zv` ou “code 200/204 + JSON” sur les `curl`, vous savez que votre cœur minimal est réellement **en Running** et **opérationnel** (même s’il ne gère encore que l’enregistrement Simple NF). Any further SF/UPF interaction (PFCP sessions, etc.) sera la suite logique.
