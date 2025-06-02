@@ -1,14 +1,14 @@
 # images
 images:
   amf:
-    repository: ghcr.io/orange-opensource/free5gc-amf
-    tag: v3.0.6
+    repository: free5gc/amf
+    tag: latest
   smf:
-    repository: ghcr.io/orange-opensource/free5gc-smf
-    tag: v3.0.6
+    repository: free5gc/smf
+    tag: latest
   upf:
-    repository: ghcr.io/orange-opensource/free5gc-upf
-    tag: v3.0.6
+    repository: free5gc/upf
+    tag: latest
 
 imagePullPolicy: IfNotPresent
 
