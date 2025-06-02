@@ -1,0 +1,90 @@
+# values.yaml
+
+# 1) On pointe vers les images Orange publiées sur GitHub Container Registry
+images:
+  amf:
+    repository: ghcr.io/orange-opensource/free5gc-amf
+    tag: v3.0.6
+  smf:
+    repository: ghcr.io/orange-opensource/free5gc-smf
+    tag: v3.0.6
+  upf:
+    repository: ghcr.io/orange-opensource/free5gc-upf
+    tag: v3.0.6
+
+imagePullPolicy: IfNotPresent
+
+# 2) Configuration JSON minimale VRAIE pour chaque NF
+amf:
+  replicaCount: 1
+  port: 7777
+  config: |
+    {
+      "sbi": {
+        "scheme": "http",
+        "ipv4": "0.0.0.0",
+        "port": 7777
+      },
+      "services": {
+        "nrf": {
+          "address": "minimal5gc-minimal5gc-nrf",
+          "port": 8000
+        }
+      },
+      "smf": {
+        "address": "minimal5gc-minimal5gc-smf",
+        "port": 7778
+      },
+      "plmn_list": [
+        {
+          "mcc": "208",
+          "mnc": "93"
+        }
+      ]
+    }
+
+smf:
+  replicaCount: 1
+  port: 7778
+  config: |
+    {
+      "sbi": {
+        "scheme": "http",
+        "ipv4": "0.0.0.0",
+        "port": 7778
+      },
+      "amf": {
+        "address": "minimal5gc-minimal5gc-amf",
+        "port": 7777
+      },
+      "upf": {
+        "address": "minimal5gc-minimal5gc-upf",
+        "port": 8805
+      },
+      "plmn_list": [
+        {
+          "mcc": "208",
+          "mnc": "93"
+        }
+      ]
+    }
+
+upf:
+  replicaCount: 1
+  port: 8805
+  config: |
+    {
+      "sbi": {
+        "scheme": "http",
+        "ipv4": "0.0.0.0",
+        "port": 8805
+      },
+      "pfcp": {
+        "address": "0.0.0.0",
+        "port": 8805
+      },
+      "gtp": {
+        "ipv4": "0.0.0.0",
+        "port": 2152
+      }
+    }
