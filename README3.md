@@ -71,3 +71,20 @@ kubectl run -n 5gc test-client2 --rm -i --tty --image=busybox -- sh -c "
 * Enfin, on **supprime** le pod AMF pour illustrer la résilience (un nouveau pod est recréé automatiquement) et on boucle un test `nc` pour montrer que le service ne reste pas indisponible longtemps.
 
 Avec cette suite de commandes, vous couvrirez **tous** les points mentionnés dans votre rapport, dans l’ordre logique : connectivité, configurations, logs, puis résilience.
+
+J’ai créé le script de tests ajusté pour votre environnement BusyBox et sans vérification de JSON. Téléchargez-le et exécutez-le comme suit :
+
+[Download `run-tests.sh`](sandbox:/mnt/data/scripts/run-tests.sh)
+
+Puis, dans votre terminal :
+
+```bash
+chmod +x scripts/run-tests.sh
+./scripts/run-tests.sh
+```
+
+Ce script exécutera automatiquement :
+
+1. Les tests de connectivité interne (`nc -zv 127.0.0.1 <port>`) dans chaque pod BusyBox.
+2. Les tests de connectivité via les services depuis un pod client BusyBox.
+3. Le test de résilience en supprimant le pod AMF puis en vérifiant sa recréation et la connectivité post-failover.
