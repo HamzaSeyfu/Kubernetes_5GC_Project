@@ -209,88 +209,106 @@ vient tout simplement du fait que **vos Services ne s’appellent pas `minimal5g
 Une fois ces ajustements effectués, votre script external connectivity repassera en **OK** pour AMF, SMF et UPF.
 
 
-Voici le script complet, à copier/coller dans `scripts/run-tests.sh`, puis à rendre exécutable (`chmod +x scripts/run-tests.sh`) :
+L’erreur :
+
+```
+error: there is no need to specify a resource type as a separate argument when passing arguments in resource/name form
+```
+
+vient du fait que `kubectl get pods -o name` renvoie des chaînes du type `pod/minimal5gc-minimal5gc-amf-…`, et que le script faisait ensuite :
+
+```bash
+kubectl delete pod -n 5gc pod/minimal5gc-minimal5gc-amf-… -n 5gc
+```
+
+soit un `pod` en double (`delete pod pod/...`). Pour corriger, on supprime la répétition du type et on laisse `kubectl delete` gérer directement le couple `resource/name`. Voici le script **intégralement corrigé** :
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1. Supprimer les anciens pods (préfixe minimal5gc-minimal5gc)
-kubectl delete pod -n 5gc $(kubectl get pods -n 5gc -o name | grep minimal5gc-minimal5gc || true)
+NS=5gc
+PREFIX=minimal5gc-minimal5gc
+
+echo "1️⃣ Suppression des anciens pods (${PREFIX})…"
+PODS_TO_DELETE=$(kubectl get pods -n $NS -o name | grep $PREFIX || true)
+if [ -n "$PODS_TO_DELETE" ]; then
+  kubectl delete -n $NS $PODS_TO_DELETE
+else
+  echo "→ Aucun pod ${PREFIX} trouvé à supprimer"
+fi
 echo
 
-# 2. Vérifier les pods restants
-echo "Pods currently running in namespace 5gc:"
-kubectl get pods -n 5gc
+echo "2️⃣ Pods actuellement en place dans namespace $NS :"
+kubectl get pods -n $NS
 echo
 
-# 3. Tests de connectivité INTERNE
-POD_AMF=$(kubectl get pod -n 5gc -l app=minimal5gc-minimal5gc-amf -o jsonpath='{.items[0].metadata.name}')
-POD_SMF=$(kubectl get pod -n 5gc -l app=minimal5gc-minimal5gc-smf -o jsonpath='{.items[0].metadata.name}')
-POD_UPF=$(kubectl get pod -n 5gc -l app=minimal5gc-minimal5gc-upf -o jsonpath='{.items[0].metadata.name}')
+# 3️⃣ Tests de connectivité INTERNE
+echo "🔌 Internal connectivity tests…"
+POD_AMF=$(kubectl get pod -n $NS -l app=${PREFIX}-amf -o jsonpath='{.items[0].metadata.name}')
+POD_SMF=$(kubectl get pod -n $NS -l app=${PREFIX}-smf -o jsonpath='{.items[0].metadata.name}')
+POD_UPF=$(kubectl get pod -n $NS -l app=${PREFIX}-upf -o jsonpath='{.items[0].metadata.name}')
 
-echo "🔌 Internal connectivity tests..."
-kubectl exec -n 5gc "$POD_AMF" -- sh -c "nc -zv 127.0.0.1 7777 && echo 'AMF: port 7777 OK' || echo 'AMF: port 7777 KO'"
-kubectl exec -n 5gc "$POD_SMF" -- sh -c "nc -zv 127.0.0.1 7778 && echo 'SMF: port 7778 OK' || echo 'SMF: port 7778 KO'"
-kubectl exec -n 5gc "$POD_UPF" -- sh -c "nc -zv 127.0.0.1 8805 && echo 'UPF: port 8805 OK' || echo 'UPF: port 8805 KO'"
+kubectl exec -n $NS "$POD_AMF" -- nc -zv 127.0.0.1 7777 && echo "AMF: port 7777 OK" || echo "AMF: port 7777 KO"
+kubectl exec -n $NS "$POD_SMF" -- nc -zv 127.0.0.1 7778 && echo "SMF: port 7778 OK" || echo "SMF: port 7778 KO"
+kubectl exec -n $NS "$POD_UPF" -- nc -zv 127.0.0.1 8805 && echo "UPF: port 8805 OK" || echo "UPF: port 8805 KO"
 echo
 
-# 4. Tests de connectivité via SERVICES
-echo "🌐 External connectivity tests via services..."
-kubectl run -n 5gc test-client --rm -i --tty --image=busybox --restart=Never -- sh -c "
-  nc -zv minimal5gc-minimal5gc-amf 7777 && echo 'Service AMF reachable' || echo 'Service AMF unreachable';
-  nc -zv minimal5gc-minimal5gc-smf 7778 && echo 'Service SMF reachable' || echo 'Service SMF unreachable';
-  nc -zv minimal5gc-minimal5gc-upf 8805 && echo 'Service UPF reachable' || echo 'Service UPF unreachable';
+# 4️⃣ Tests de connectivité via SERVICES
+echo "🌐 External connectivity tests via services…"
+kubectl run -n $NS test-client --rm -i --tty --image=busybox --restart=Never -- sh -c "
+  nc -zv ${PREFIX}-amf 7777 && echo 'Service AMF joignable' || echo 'Service AMF INJOIGNABLE';
+  nc -zv ${PREFIX}-smf 7778 && echo 'Service SMF joignable' || echo 'Service SMF INJOIGNABLE';
+  nc -zv ${PREFIX}-upf 8805 && echo 'Service UPF joignable' || echo 'Service UPF INJOIGNABLE';
 "
 echo
 
-# 5. Vérification du montage des ConfigMaps
-echo "📂 Verifying ConfigMap mounts..."
-kubectl exec -n 5gc "$POD_AMF" -- sh -c "ls /free5gc/config && echo 'AMF ConfigMap mounted' || echo 'AMF ConfigMap missing'"
-kubectl exec -n 5gc "$POD_SMF" -- sh -c "ls /free5gc/config && echo 'SMF ConfigMap mounted' || echo 'SMF ConfigMap missing'"
-kubectl exec -n 5gc "$POD_UPF" -- sh -c "ls /free5gc/config && echo 'UPF ConfigMap mounted' || echo 'UPF ConfigMap missing'"
+# 5️⃣ Vérification du montage des ConfigMaps
+echo "📂 Vérification des ConfigMaps montées…"
+kubectl exec -n $NS "$POD_AMF" -- sh -c "ls /free5gc/config && echo 'AMF ConfigMap OK' || echo 'AMF ConfigMap MANQUANTE'"
+kubectl exec -n $NS "$POD_SMF" -- sh -c "ls /free5gc/config && echo 'SMF ConfigMap OK' || echo 'SMF ConfigMap MANQUANTE'"
+kubectl exec -n $NS "$POD_UPF" -- sh -c "ls /free5gc/config && echo 'UPF ConfigMap OK' || echo 'UPF ConfigMap MANQUANTE'"
 echo
 
-# 6. Inspection rapide des logs pour N11 / PFCP
-echo "📝 Inspecting logs for N11 and PFCP..."
-kubectl logs -n 5gc deployment/minimal5gc-minimal5gc-amf | grep -i nrf || echo "No NRF logs found in AMF"
-kubectl logs -n 5gc deployment/minimal5gc-minimal5gc-smf | grep -i pfcp || echo "No PFCP logs found in SMF"
-kubectl logs -n 5gc deployment/minimal5gc-minimal5gc-upf | grep -i pfcp || echo "No PFCP logs found in UPF"
+# 6️⃣ Inspection rapide des logs pour N11 / PFCP
+echo "📝 Logs N11 / PFCP…"
+kubectl logs -n $NS deployment/${PREFIX}-amf | grep -i nrf || echo "→ Pas de logs NRF dans AMF"
+kubectl logs -n $NS deployment/${PREFIX}-smf | grep -i pfcp || echo "→ Pas de logs PFCP dans SMF"
+kubectl logs -n $NS deployment/${PREFIX}-upf | grep -i pfcp || echo "→ Pas de logs PFCP dans UPF"
 echo
 
-# 7. Test de résilience : suppression du pod AMF
-echo ">>> Resilience test: deleting AMF pod..."
-kubectl delete pod -n 5gc "$POD_AMF"
-echo "Waiting for new AMF pod to be Ready..."
-kubectl wait --for=condition=Ready pod -l app=minimal5gc-minimal5gc-amf -n 5gc --timeout=120s
+# 7️⃣ Test de résilience : suppression du pod AMF
+echo "🔄 Test de résilience : suppression du pod AMF…"
+kubectl delete pod -n $NS "$POD_AMF"
+echo "⏳ En attente du nouveau pod AMF Ready…"
+kubectl wait --for=condition=Ready pod -l app=${PREFIX}-amf -n $NS --timeout=120s
 echo
 
-# 8. Re-test en continu depuis un 2ᵉ pod client
-echo "🧪 Re-testing service AMF after failover..."
-kubectl run -n 5gc test-client2 --rm -i --tty --image=busybox --restart=Never -- sh -c "
+# 8️⃣ Re-test en boucle depuis un second pod client
+echo "🧪 Re-test service AMF après failover…"
+kubectl run -n $NS test-client2 --rm -i --tty --image=busybox --restart=Never -- sh -c "
   while true; do
-    nc -zv minimal5gc-minimal5gc-amf 7777 && echo 'AMF OK post-failover' || echo 'AMF KO post-failover';
+    nc -zv ${PREFIX}-amf 7777 && echo 'AMF OK post-failover' || echo 'AMF KO post-failover';
     sleep 1;
   done
 "
 echo
 
-echo "🎉 All tests completed!"
+echo "🎉 Tous les tests sont terminés !"
 ```
 
-**Instructions :**
+**Étapes pour l’utiliser :**
 
-1. Place ce contenu dans `scripts/run-tests.sh` à la racine de votre projet.
-2. R rendez-le exécutable :
+1. Collez ce contenu dans `scripts/run-tests.sh`.
+2. Rendez-le exécutable :
 
    ```bash
    chmod +x scripts/run-tests.sh
    ```
-3. Lancez :
+3. Lancez-le :
 
    ```bash
    ./scripts/run-tests.sh
    ```
 
-et vous disposerez d’un test bout-en-bout et en continu pour valider connectivité, configuration, logs et résilience.
-
+Vous aurez alors bien la suppression des anciens pods, le redéploiement automatique, et tous les tests internes/externe/failover qui passent sur les bons noms de services.
