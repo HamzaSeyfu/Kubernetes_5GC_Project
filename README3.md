@@ -140,3 +140,70 @@ Une fois les pods à nouveau en **Running**, relance ton script de tests ou tes 
 kubectl get pods -n 5gc
 ./scripts/run-tests.sh
 ```
+
+
+Le message
+
+```
+nc: bad address 'minimal5gc-amf'
+Service AMF unreachable
+```
+
+vient tout simplement du fait que **vos Services ne s’appellent pas `minimal5gc-amf`** mais `{{ include "minimal5gc.fullname" . }}-amf`, autrement dit ici **`minimal5gc-minimal5gc-amf`** (puisque votre Chart et votre release s’appellent tous les deux `minimal5gc`). Kubernetes DNS ne trouve donc rien sous le nom abrégé `minimal5gc-amf`.
+
+---
+
+### Comment corriger
+
+1. **Vérifiez le nom exact de votre Service**
+
+   ```bash
+   kubectl get svc -n 5gc
+   NAME                             TYPE        CLUSTER-IP      ...  
+   minimal5gc-minimal5gc-amf       ClusterIP   10.96.xxx.xxx  
+   minimal5gc-minimal5gc-smf       ClusterIP   10.96.xxx.yyy  
+   minimal5gc-minimal5gc-upf       ClusterIP   10.96.xxx.zzz  
+   ```
+
+2. **Adaptez vos tests externes**
+   Remplacez dans le script les lignes
+
+   ```bash
+   nc -zv minimal5gc-amf 7777
+   nc -zv minimal5gc-smf 7778
+   nc -zv minimal5gc-upf 8805
+   ```
+
+   par
+
+   ```bash
+   nc -zv minimal5gc-minimal5gc-amf 7777 && echo 'AMF OK' || echo 'AMF KO'
+   nc -zv minimal5gc-minimal5gc-smf 7778 && echo 'SMF OK' || echo 'SMF KO'
+   nc -zv minimal5gc-minimal5gc-upf 8805 && echo 'UPF OK' || echo 'UPF KO'
+   ```
+
+3. **(Optionnel) Utiliser la résolution DNS directe**
+   Si vous voulez garder des noms courts, vous pouvez créer un **Service alias** ou un **headless Service** `amf` qui cible les mêmes pods, par exemple un manifest
+
+   ```yaml
+   apiVersion: v1
+   kind: Service
+   metadata:
+     name: amf
+     namespace: 5gc
+   spec:
+     type: ClusterIP
+     selector:
+       app: minimal5gc-minimal5gc-amf
+     ports:
+       - port: 7777
+         targetPort: 7777
+   ```
+
+   Vous pourrez alors taper
+
+   ```bash
+   nc -zv amf 7777
+   ```
+
+Une fois ces ajustements effectués, votre script external connectivity repassera en **OK** pour AMF, SMF et UPF.
