@@ -88,3 +88,55 @@ Ce script exécutera automatiquement :
 1. Les tests de connectivité interne (`nc -zv 127.0.0.1 <port>`) dans chaque pod BusyBox.
 2. Les tests de connectivité via les services depuis un pod client BusyBox.
 3. Le test de résilience en supprimant le pod AMF puis en vérifiant sa recréation et la connectivité post-failover.
+
+Pour tout supprimer et repartir sur une base propre, tu as trois possibilités :
+
+---
+
+### 1) Supprimer et laisser le Deployment recréer les pods
+
+```bash
+# supprime tous les pods dans le namespace 5gc
+kubectl delete pods -n 5gc --all
+
+# surveille leur recréation automatique
+kubectl get pods -n 5gc -w
+```
+
+Comme tu as un Deployment en place, Kubernetes va immédiatement recréer trois nouveaux pods.
+
+---
+
+### 2) Redémarrer manuellement chaque Deployment
+
+```bash
+kubectl rollout restart deployment/minimal5gc-minimal5gc-amf   -n 5gc
+kubectl rollout restart deployment/minimal5gc-minimal5gc-smf   -n 5gc
+kubectl rollout restart deployment/minimal5gc-minimal5gc-upf   -n 5gc
+
+# puis vérifier
+kubectl get pods -n 5gc
+```
+
+Ça déclenche un **rolling restart** sans toucher au reste du chart.
+
+---
+
+### 3) Désinstaller et réinstaller la release Helm
+
+```bash
+helm uninstall minimal5gc -n 5gc
+helm install   minimal5gc ./    -n 5gc
+```
+
+> **NB** : adapte le chemin `./` si tu n’es pas dans le bon dossier.
+> Cette méthode te remet tout à zéro : ConfigMaps, Services, Deployments, pods, etc.
+
+---
+
+Une fois les pods à nouveau en **Running**, relance ton script de tests ou tes commandes `nc` pour valider la connectivité de nouveau :
+
+```bash
+kubectl get pods -n 5gc
+./scripts/run-tests.sh
+```
