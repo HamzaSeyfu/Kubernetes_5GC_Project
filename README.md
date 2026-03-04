@@ -1,7 +1,3 @@
-Here’s a short, practical **English mini-tutorial** (based on your logs) to run your ONNX + Hypothesis tests from the terminal on Windows.
-
----
-
 ## Run the Mul Hypothesis tests (Windows + PowerShell)
 
 ### 1) Open PowerShell and go to the project folder
