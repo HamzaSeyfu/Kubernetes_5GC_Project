@@ -1,79 +1,75 @@
-## Run the Mul Hypothesis tests (Windows + PowerShell)
+# Kubernetes 5G Core Project
 
-### 1) Open PowerShell and go to the project folder
+**Cloud-native 5G Core deployment and validation lab built around Kubernetes.**
 
-```powershell
-cd "C:\Users\hamza\Desktop\Stage EXUPERY\Opération Mul"
-```
+This repository documents hands-on work around deploying, configuring, testing, and troubleshooting a containerized 5G Core environment.
 
-### 2) Activate your virtual environment
+## Project scope
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
+The project focuses on the operational side of a 5G Core running on Kubernetes:
 
-You should see `(.venv)` at the beginning of your prompt.
+- deployment of 5G Core components;
+- Kubernetes manifests and environment configuration;
+- service connectivity and network troubleshooting;
+- validation through end-to-end tests;
+- automation scripts for repeatable setup and checks;
+- analysis of infrastructure and application failures.
 
-### 3) Quick sanity checks (optional but recommended)
+## Core technologies
 
-Check ONNX import works:
+- Kubernetes
+- Linux
+- 5G Core networking
+- AMF / SMF / UPF concepts
+- TCP/IP
+- NAT / routing / CNI
+- Bash scripting
+- connectivity testing
+- infrastructure troubleshooting
 
-```powershell
-python -c "import onnx; print(onnx.__version__)"
-```
+## Validation approach
 
-Check ONNX Runtime works and see available providers:
+The environment is tested progressively:
 
-```powershell
-python -c "import onnxruntime as ort; print(ort.__version__); print(ort.get_available_providers())"
-```
+1. Verify Kubernetes resources and service readiness.
+2. Check pod status, logs, images, and configuration.
+3. Validate network reachability between components.
+4. Exercise end-to-end connectivity.
+5. Use ping / throughput testing where applicable.
+6. Investigate failures across application, container, and network layers.
 
-Typical output on CPU:
-`['AzureExecutionProvider', 'CPUExecutionProvider']`
+## Repository structure
 
-### 4) Install dependencies (if not done yet)
+- `5GC minimal/` — minimal 5G Core environment
+- `manifests/` — Kubernetes manifests
+- `scripts/` — automation and helper scripts
+- `run-tests.sh` — test orchestration
+- `Autre/` — additional supporting material
 
-```powershell
-pip install -r requirements.txt
-```
+## Engineering focus
 
-### 5) Run the Mul test only (with prints enabled)
+This project is less about a one-click demo and more about understanding how a distributed telecom workload behaves when deployed on a container orchestration platform.
 
-* `-q` = quiet output
-* `-k test_mul` = select tests whose name matches “test_mul”
-* `-s` = show print() output
+Typical failure domains include:
 
-```powershell
-pytest -q -k test_mul -s
-```
+- pod startup and readiness;
+- container images and runtime issues;
+- service discovery;
+- DNS;
+- routing and NAT;
+- CNI behavior;
+- UPF-related connectivity;
+- timeout and dependency failures.
 
-### 6) Understand the output you saw
+## What this project demonstrates
 
-* A single dot `.` means the selected test passed.
-* `1 passed` means the test succeeded.
-* `1 deselected` means other tests were ignored because of your `-k` filter.
-* The warning:
-  `RuntimeWarning: overflow encountered in multiply`
-  is expected when generating integer test cases (values can overflow in fixed-width integer multiplication). It’s a warning, not a failure.
-
-### 7) If you hit ONNX DLL import errors
-
-If you get:
-`ImportError: DLL load failed while importing onnx_cpp2py_export`
-A reliable fix (as in your logs) is to reinstall a compatible ONNX wheel, then re-check:
-
-```powershell
-pip uninstall -y onnx
-pip install "onnx==1.16.1"
-python -c "import onnx; print('onnx ok', onnx.__version__)"
-```
-
-### 8) If a test fails with uint8 / int8 (InvalidGraph)
-
-If you see:
-`INVALID_GRAPH: Type 'tensor(uint8)' ... is invalid`
-that means **ONNX Runtime CPU does not support Mul for that dtype** in your setup. In that case, remove `UINT8/INT8` from the CPU type list used by the test, or test with another provider that supports it.
+- Kubernetes deployment and troubleshooting
+- Systems and network debugging
+- Cloud-native telecom architecture
+- Automation of repetitive validation tasks
+- Reading logs and correlating failures across layers
+- Building reproducible technical procedures
 
 ---
 
-If you want, paste your current `requirements.txt` and I’ll give you the cleanest “CPU-only” version (to avoid TensorFlow/ml_dtypes headaches).
+**Status:** technical lab / portfolio project based on practical 5G Core and Kubernetes experimentation.
